@@ -8,7 +8,6 @@ A modern, full-stack travel companion matching platform built with React, TypeSc
 - **User Authentication** - Secure login/signup with email/password and Google OAuth
 - **Travel Matching** - Swipeable card interface to discover travel companions
 - **Real-time Messaging** - Chat with matched travelers
-- **Interactive Map** - Location-based filtering and profile discovery
 - **Profile Management** - Complete user profiles with photos and preferences
 
 ### Technical Features
@@ -55,7 +54,8 @@ src/
 │   ├── Login.tsx       # Authentication pages
 │   ├── Discover.tsx    # Travel matching
 │   ├── Messages.tsx    # Chat interface
-│   └── ...
+│   ├── Matches.tsx     # Matched users
+│   └── Profile.tsx     # User profile
 ├── hooks/              # Custom React hooks
 │   ├── useAuth.ts      # Authentication logic
 │   └── useFirestore.ts # Database operations

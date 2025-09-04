@@ -5,14 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/components/AuthProvider";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import "@/lib/firebase"; // Initialize Firebase
+import "@/lib/firebase"; 
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Discover from "./pages/Discover";
 import Profile from "./pages/Profile";
 import Messages from "./pages/Messages";
-import Map from "./pages/Map";
 import Matches from "./pages/Matches";
 import NotFound from "./pages/NotFound";
 
@@ -50,11 +49,6 @@ const App = () => (
             <Route path="/messages" element={
               <ProtectedRoute>
                 <Messages />
-              </ProtectedRoute>
-            } />
-            <Route path="/map" element={
-              <ProtectedRoute>
-                <Map />
               </ProtectedRoute>
             } />
             
