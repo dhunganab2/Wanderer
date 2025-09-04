@@ -45,6 +45,14 @@ export const TravelCard: React.FC<TravelCardProps> = ({
           src={user.coverImage || user.avatar} 
           alt={`${user.name}'s travel photo`}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== user.avatar) {
+              target.src = user.avatar;
+            } else {
+              target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff&size=800x600`;
+            }
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
         
@@ -83,9 +91,29 @@ export const TravelCard: React.FC<TravelCardProps> = ({
       <div className="p-6 space-y-4">
         {/* Name and Age */}
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-semibold text-foreground">
-            {user.name}, {user.age}
-          </h3>
+          <div className="flex items-center space-x-3">
+            {/* Avatar */}
+            <img 
+              src={user.avatar} 
+              alt={`${user.name}'s profile`}
+              className="w-12 h-12 rounded-full object-cover border-2 border-primary/20"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&color=fff&size=48`;
+              }}
+            />
+            <div>
+              <h3 className="text-xl font-semibold text-foreground">
+                {user.name}, {user.age}
+              </h3>
+              {user.verified && (
+                <div className="flex items-center text-primary text-xs font-medium">
+                  <span className="w-2 h-2 bg-primary rounded-full mr-1"></span>
+                  Verified
+                </div>
+              )}
+            </div>
+          </div>
           <div className="flex items-center text-muted-foreground text-sm">
             <MapPin className="w-4 h-4 mr-1" />
             {user.location}

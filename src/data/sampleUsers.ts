@@ -88,8 +88,8 @@ export const sampleUsers: User[] = [
     id: '1',
     name: 'Maya',
     age: 28,
-    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b8c5?w=400&h=400&fit=crop&crop=face',
-    coverImage: 'https://images.unsplash.com/photo-1539650116574-75c0c6d73700?w=800&h=600&fit=crop',
+    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b8c5?w=400&h=400&fit=crop&crop=face&auto=format&q=80',
+    coverImage: 'https://images.unsplash.com/photo-1539650116574-75c0c6d73700?w=800&h=600&fit=crop&auto=format&q=80',
     location: 'San Francisco, CA',
     coordinates: generateCoordinates('San Francisco, CA'),
     travelStyle: ['backpacker', 'foodie', 'photographer'],
@@ -99,9 +99,9 @@ export const sampleUsers: User[] = [
     interests: ['Photography', 'Food', 'Culture'],
     mutualConnections: 3,
     photos: [
-      'https://images.unsplash.com/photo-1539650116574-75c0c6d73700?w=800&h=600&fit=crop',
-      'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=800&h=600&fit=crop',
-      'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&h=600&fit=crop'
+      'https://images.unsplash.com/photo-1539650116574-75c0c6d73700?w=800&h=600&fit=crop&auto=format&q=80',
+      'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=800&h=600&fit=crop&auto=format&q=80',
+      'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&h=600&fit=crop&auto=format&q=80'
     ],
     verified: true,
     joinDate: '2023-08-15',
