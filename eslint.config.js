@@ -7,6 +7,12 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   { ignores: ["dist"] },
   {
+    files: ["**/*.config.{js,ts}"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
@@ -23,7 +29,18 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
-      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { 
+          "argsIgnorePattern": "^_",
+          "varsIgnorePattern": "^_",
+          "caughtErrorsIgnorePattern": "^_"
+        }
+      ],
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-non-null-assertion": "warn",
+      "prefer-const": "error",
+      "no-var": "error",
     },
   }
 );

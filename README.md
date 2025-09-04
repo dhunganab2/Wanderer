@@ -1,219 +1,197 @@
-# 🌍 Wanderer - Travel Companion Matching App
+# Wanderer - Travel Companion Matching App
 
-> Connect with like-minded travelers and discover your next adventure together!
+A modern, full-stack travel companion matching platform built with React, TypeScript, and Firebase. Connect with like-minded travelers, discover new destinations, and create unforgettable adventures together.
 
-![Wanderer Preview](https://via.placeholder.com/800x400/FF6B6B/FFFFFF?text=Wanderer+Travel+App)
+## 🚀 Features
 
-## ✨ Features
+### Core Functionality
+- **User Authentication** - Secure login/signup with email/password and Google OAuth
+- **Travel Matching** - Swipeable card interface to discover travel companions
+- **Real-time Messaging** - Chat with matched travelers
+- **Interactive Map** - Location-based filtering and profile discovery
+- **Profile Management** - Complete user profiles with photos and preferences
 
-### 🎯 Core Functionality
-- **Tinder-like Matching System** - Swipe to find travel companions
-- **Real-time Match Notifications** - Instant celebrations when you match
-- **Advanced Filtering** - Age, distance, travel styles, destinations
-- **Interactive Map** - View travelers by location with pins
-- **Profile Management** - Complete profile editing with photo uploads
-- **Messages Interface** - Chat with your matches
-- **Travel Planning** - Share destinations and travel dates
+### Technical Features
+- **Responsive Design** - Mobile-first approach with beautiful UI
+- **Real-time Data** - Firebase Firestore for live updates
+- **Modern Animations** - Framer Motion and custom CSS animations
+- **Type Safety** - Full TypeScript implementation
+- **State Management** - Zustand for efficient state handling
+- **Protected Routes** - Secure navigation and authentication guards
 
-### 🎨 Design & UX
-- **Beautiful UI** - Modern glass morphism design with custom gradients
-- **Dark/Light Mode** - Complete theme switching support
-- **Mobile-First** - Responsive design optimized for all devices
-- **Smooth Animations** - React Spring powered gestures and transitions
-- **Loading States** - Skeleton screens for better perceived performance
+## 🛠️ Tech Stack
 
-### 🛠 Technical Features
-- **TypeScript** - Full type safety throughout the application
-- **State Management** - Zustand with persistent storage
-- **Component Library** - shadcn/ui for consistent design
-- **Modern Build** - Vite for fast development and builds
-- **Gesture Support** - @use-gesture/react for native-like interactions
+### Frontend
+- **React 18** - Modern React with hooks and functional components
+- **TypeScript** - Type-safe development with strict configuration
+- **Vite** - Fast build tool and development server
+- **Tailwind CSS** - Utility-first CSS framework with custom design system
+- **shadcn/ui** - Beautiful, accessible component library
+- **Framer Motion** - Smooth animations and transitions
+- **React Router** - Client-side routing with protected routes
 
-## 🚀 Tech Stack
+### Backend & Services
+- **Firebase Authentication** - User management and OAuth
+- **Firebase Firestore** - Real-time NoSQL database
+- **Firebase Storage** - File and image storage
+- **Firebase Analytics** - User behavior tracking
 
-- **Frontend**: React 18 + TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
-- **Build Tool**: Vite
-- **State Management**: Zustand
-- **Animations**: React Spring + @use-gesture/react
-- **Icons**: Lucide React
-- **Routing**: React Router DOM
+### Development Tools
+- **ESLint** - Code linting with TypeScript support
+- **PostCSS** - CSS processing and optimization
+- **Git** - Version control with GitHub integration
 
-## 📱 Pages & Features
-
-### 🏠 Landing Page
-- Hero section with compelling CTAs
-- Feature showcase with animated cards
-- Statistics and social proof
-- Sample user profiles preview
-
-### 🔍 Discover Page
-- **Stack Mode**: Tinder-like card swiping
-- **Grid Mode**: Browse all travelers
-- **Advanced Filters**: Age, distance, travel styles, destinations
-- **Match Notifications**: Celebration animations when matched
-
-### 💕 Matches Page
-- View all mutual matches
-- See pending likes sent
-- Search through matches
-- Direct messaging from match cards
-
-### 🗺️ Map Page
-- Interactive map with traveler markers
-- Location-based filtering
-- User profile previews on hover
-- Real-time location updates
-
-### 💬 Messages Page
-- Conversation list with previews
-- Real-time chat interface
-- User status indicators
-- Message search functionality
-
-### 👤 Profile Page
-- Complete profile editing
-- Photo upload and management
-- Travel style customization
-- Next trip planning
-
-## 🎨 Design System
-
-### Colors
-- **Primary**: Sunrise Coral (#FF6B6B)
-- **Secondary**: Midnight Blue (#2C3E50)
-- **Accent**: Sky Blue (#74B9FF)
-- **Warm**: Amber (#FDCB6E)
-
-### Typography
-- **Display**: Manrope (headings)
-- **Body**: Inter (body text)
-
-### Components
-- Glass morphism cards
-- Gradient backgrounds
-- Smooth hover effects
-- Animated loading states
-
-## 🏃‍♂️ Quick Start
-
-### Prerequisites
-- Node.js 18+ 
-- npm or yarn
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/jalshrestha/wanderer.git
-
-# Navigate to project directory
-cd wanderer
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-### Available Scripts
-
-```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run preview      # Preview production build
-npm run lint         # Run ESLint
-```
-
-## 📂 Project Structure
+## 🏗️ Project Structure
 
 ```
 src/
 ├── components/          # Reusable UI components
 │   ├── ui/             # shadcn/ui components
-│   ├── Navigation.tsx  # App navigation
-│   ├── TravelCard.tsx  # User profile cards
+│   ├── AuthProvider.tsx # Authentication context
+│   ├── Navigation.tsx   # Navigation components
 │   └── ...
-├── pages/              # Route components
-│   ├── Landing.tsx     # Landing page
-│   ├── Discover.tsx    # Swipe interface
-│   ├── Matches.tsx     # Matches management
+├── pages/              # Page components
+│   ├── Landing.tsx     # Homepage
+│   ├── Login.tsx       # Authentication pages
+│   ├── Discover.tsx    # Travel matching
+│   ├── Messages.tsx    # Chat interface
 │   └── ...
-├── store/              # Zustand state management
+├── hooks/              # Custom React hooks
+│   ├── useAuth.ts      # Authentication logic
+│   └── useFirestore.ts # Database operations
+├── lib/                # Utility functions
+│   ├── firebase.ts     # Firebase configuration
+│   └── utils.ts        # Helper functions
+├── store/              # State management
+│   └── useAppStore.ts  # Zustand store
 ├── types/              # TypeScript type definitions
-├── data/               # Sample data and constants
-└── lib/                # Utility functions
+└── data/               # Sample data and constants
 ```
 
-## 🎯 Key Components
+## 🚀 Getting Started
 
-### SwipeableCard
-Real swipe gestures with visual feedback:
-- Drag to like/pass/super like
-- Visual indicators during swipe
-- Smooth spring animations
-- Touch and mouse support
+### Prerequisites
+- Node.js 18+ 
+- npm or yarn
+- Firebase project setup
 
-### FilterPanel
-Advanced filtering system:
-- Age range slider
-- Distance radius selector
-- Travel style multi-select
-- Destination search with autocomplete
+### Installation
 
-### TravelCard
-Beautiful user profile display:
-- Cover and profile photos
-- Travel information
-- Style tags and interests
-- Mutual connections indicator
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/jalshrestha/Wanderer.git
+   cd Wanderer
+   ```
 
-## 🌟 Screenshots
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-### Landing Page
-![Landing](https://via.placeholder.com/600x400/74B9FF/FFFFFF?text=Landing+Page)
+3. **Set up Firebase**
+   - Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
+   - Enable Authentication, Firestore, and Storage
+   - Copy your Firebase config to `src/lib/firebase.ts`
 
-### Discover Page
-![Discover](https://via.placeholder.com/600x400/FF6B6B/FFFFFF?text=Discover+Travelers)
+4. **Start development server**
+   ```bash
+   npm run dev
+   ```
 
-### Matches Page
-![Matches](https://via.placeholder.com/600x400/FDCB6E/FFFFFF?text=Your+Matches)
+5. **Open in browser**
+   Navigate to `http://localhost:8080`
 
-### Profile Page
-![Profile](https://via.placeholder.com/600x400/2C3E50/FFFFFF?text=Profile+Management)
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
+
+## 🎨 Design System
+
+### Color Palette
+- **Sunrise Coral** - Primary brand color
+- **Midnight Blue** - Secondary color
+- **Warm Grays** - Neutral tones
+- **Accent Colors** - Forest Green, Sky Blue, Warm Amber
+
+### Typography
+- **Display Font** - Manrope (headings)
+- **Body Font** - Inter (body text)
+
+### Components
+- Glass morphism effects
+- Smooth animations and transitions
+- Responsive grid layouts
+- Custom button variants
+- Card-based design patterns
+
+## 🔧 Configuration
+
+### TypeScript
+- Strict mode enabled for production
+- Path aliases configured (`@/*` → `./src/*`)
+- Comprehensive type definitions
+
+### ESLint
+- TypeScript-aware linting
+- React hooks rules
+- Custom rules for unused variables
+
+### Tailwind CSS
+- Custom design tokens
+- Dark mode support
+- Responsive breakpoints
+- Custom animations
 
 ## 🚀 Deployment
 
-### Vercel (Recommended)
-```bash
-npm run build
-# Deploy to Vercel
-```
+### GitHub Pages
+1. Build the project: `npm run build`
+2. Push to GitHub repository
+3. Enable GitHub Pages in repository settings
 
-### Netlify
-```bash
-npm run build
-# Deploy dist/ folder to Netlify
-```
+### Vercel/Netlify
+1. Connect your GitHub repository
+2. Configure build settings:
+   - Build command: `npm run build`
+   - Output directory: `dist`
+3. Deploy automatically on push
 
-### Other Platforms
-The app builds to static files and can be deployed to any static hosting service.
+## 📱 Mobile Support
+
+- Responsive design for all screen sizes
+- Touch-friendly interface
+- Mobile-optimized navigation
+- Gesture support for card swiping
+
+## 🔒 Security
+
+- Firebase Authentication with secure rules
+- Protected routes and API endpoints
+- Input validation and sanitization
+- HTTPS enforcement in production
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
-## 📝 License
+## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- [shadcn/ui](https://ui.shadcn.com/) for beautiful components
+- [Tailwind CSS](https://tailwindcss.com/) for utility-first styling
+- [Firebase](https://firebase.google.com/) for backend services
+- [Framer Motion](https://www.framer.com/motion/) for animations
 
 ---
 
-⭐ **Star this repository if you find it helpful!**
-
-🌍 **Ready to find your next travel companion? Start swiping!**
+**Built with ❤️ for travelers who believe the best stories are written together.**

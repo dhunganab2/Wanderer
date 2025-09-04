@@ -32,7 +32,7 @@ export const Navigation: React.FC<NavigationProps> = ({ className }) => {
   const currentPath = location.pathname;
   const { user, logout } = useAuthContext();
 
-  const handleLogout = async () => {
+  const _handleLogout = async () => {
     try {
       await logout();
       navigate('/');
@@ -110,7 +110,7 @@ export const DesktopNavigation: React.FC<NavigationProps> = ({ className }) => {
   const currentPath = location.pathname;
   const { user, logout } = useAuthContext();
 
-  const handleLogout = async () => {
+  const _handleLogout = async () => {
     try {
       await logout();
       navigate('/');
@@ -203,7 +203,7 @@ export const DesktopNavigation: React.FC<NavigationProps> = ({ className }) => {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                  <DropdownMenuItem onClick={_handleLogout} className="text-red-600">
                     <LogOut className="mr-2 h-4 w-4" />
                     Log out
                   </DropdownMenuItem>
