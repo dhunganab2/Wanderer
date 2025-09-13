@@ -195,6 +195,7 @@ export const useUserProfile = () => {
 
   return {
     user,
+    setUser,
     loading,
     error,
     profileComplete,

@@ -10,8 +10,10 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Discover from "./pages/Discover";
+import EnhancedDiscover from "./pages/EnhancedDiscover";
 import Profile from "./pages/Profile";
 import Messages from "./pages/Messages";
+import EnhancedMessages from "./pages/EnhancedMessages";
 import Map from "./pages/Map";
 import Matches from "./pages/Matches";
 import NotFound from "./pages/NotFound";
@@ -42,6 +44,11 @@ const App = () => (
             {/* Protected routes */}
             <Route path="/discover" element={
               <ProtectedRoute>
+                <EnhancedDiscover />
+              </ProtectedRoute>
+            } />
+            <Route path="/discover-old" element={
+              <ProtectedRoute>
                 <Discover />
               </ProtectedRoute>
             } />
@@ -56,6 +63,11 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/messages" element={
+              <ProtectedRoute>
+                <EnhancedMessages />
+              </ProtectedRoute>
+            } />
+            <Route path="/messages-old" element={
               <ProtectedRoute>
                 <Messages />
               </ProtectedRoute>

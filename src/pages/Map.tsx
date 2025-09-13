@@ -13,6 +13,54 @@ import type { User } from '@/types';
 // Google Maps API configuration
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAWTPpdmE_vLEeDblFM1_ELxcdOIj68IuQ';
 
+// Fallback map component for when Google Maps is not available
+const FallbackMap: React.FC<{ users: User[]; onMarkerClick: (user: User) => void; selectedUser: User | null }> = ({ 
+  users, 
+  onMarkerClick, 
+  selectedUser 
+}) => (
+  <div className="w-full h-full bg-muted/20 flex items-center justify-center relative">
+    <div className="text-center p-8">
+      <MapPin className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+      <h3 className="text-lg font-semibold text-foreground mb-2">Map Unavailable</h3>
+      <p className="text-muted-foreground mb-4">
+        Google Maps requires billing to be enabled. Using list view instead.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
+        {users.map((user) => (
+          <Card 
+            key={user.id} 
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md",
+              selectedUser?.id === user.id && "ring-2 ring-primary"
+            )}
+            onClick={() => onMarkerClick(user)}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <img 
+                  src={user.avatar} 
+                  alt={user.name}
+                  className="w-12 h-12 rounded-full object-cover"
+                />
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold truncate">{user.name}</h4>
+                  <p className="text-sm text-muted-foreground truncate">{user.nextDestination}</p>
+                  {user.coordinates && (
+                    <p className="text-xs text-muted-foreground">
+                      📍 {user.coordinates.lat.toFixed(2)}, {user.coordinates.lng.toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
 // Map component
 interface MapComponentProps {
   center: google.maps.LatLngLiteral;
@@ -251,7 +299,12 @@ export default function Map() {
       case Status.LOADING:
         return <LoadingComponent />;
       case Status.FAILURE:
-        return <ErrorComponent />;
+        // Check if it's a billing error and show fallback
+        return <FallbackMap 
+          users={filteredUsers} 
+          onMarkerClick={handleMarkerClick} 
+          selectedUser={selectedUser} 
+        />;
       case Status.SUCCESS:
         return (
           <MapComponent

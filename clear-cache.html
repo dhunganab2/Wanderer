@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Cache</title>
+</head>
+<body>
+    <h1>Cache Cleared!</h1>
+    <p>This page forces a hard refresh. Go back to your app now.</p>
+    <script>
+        // Clear all caches
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                for (let name of names) {
+                    caches.delete(name);
+                }
+                console.log('✅ All caches cleared');
+            });
+        }
+        
+        // Force reload the main page
+        setTimeout(() => {
+            window.location.href = 'http://localhost:8080/profile';
+        }, 1000);
+    </script>
+</body>
+</html>

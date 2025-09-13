@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Heart, 
   MessageCircle, 
@@ -18,30 +18,65 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useAppStore } from '@/store/useAppStore';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import { sampleUsers } from '@/data/sampleUsers';
 import { cn } from '@/lib/utils';
 import type { User, Match } from '@/types';
 
 export default function Matches() {
-  const { matches, swipeHistory } = useAppStore();
+  const { matches, swipeHistory, users, swipeUser, setUsers, addMatch } = useAppStore();
+  const { authUser } = useUserProfile();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Get users that were liked (simulate matches)
+  // Load users if not already loaded
+  useEffect(() => {
+    if (users.length === 0) {
+      // Import enhanced users and set them
+      import('@/data/enhancedSampleData').then(({ enhancedUsers }) => {
+        setUsers(enhancedUsers.slice(0, 20));
+      });
+    }
+  }, [users.length, setUsers]);
+
+  // Get actual matches from the store
+  const mutualMatches = matches.filter(match => match.status === 'accepted');
+  
+  // Get users that were liked but not matched yet
   const likedUserIds = swipeHistory
     .filter(swipe => swipe.type === 'like' || swipe.type === 'superlike')
     .map(swipe => swipe.userId);
 
-  const matchedUsers = sampleUsers.filter(user => likedUserIds.includes(user.id));
+  // Use users from store if available, otherwise fallback to sample users
+  const availableUsers = users.length > 0 ? users : sampleUsers;
   
-  // Simulate some users liking back (for demo)
-  const mutualMatches = matchedUsers.filter(() => Math.random() > 0.4); // ~60% match back
-  const pendingLikes = matchedUsers.filter(user => !mutualMatches.includes(user));
+  // Get matched user objects
+  const matchedUserObjects = mutualMatches.map(match => {
+    const userId = match.users.find(id => id !== authUser?.uid);
+    return availableUsers.find(user => user.id === userId);
+  }).filter(Boolean) as User[];
+  
+  // Get pending likes (liked but not matched)
+  const matchedUserIds = mutualMatches.flatMap(match => match.users);
+  const pendingLikes = availableUsers.filter(user => 
+    likedUserIds.includes(user.id) && !matchedUserIds.includes(user.id)
+  );
+
+  // Debug logging
+  console.log('Matches Debug:', {
+    totalMatches: matches.length,
+    mutualMatches: mutualMatches.length,
+    matchedUserObjects: matchedUserObjects.length,
+    likedUserIds: likedUserIds.length,
+    pendingLikes: pendingLikes.length,
+    availableUsers: availableUsers.length,
+    authUser: authUser?.uid
+  });
 
   const superLikedUserIds = swipeHistory
     .filter(swipe => swipe.type === 'superlike')
     .map(swipe => swipe.userId);
 
-  const filteredMatches = mutualMatches.filter(user =>
+  const filteredMatches = matchedUserObjects.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.nextDestination.toLowerCase().includes(searchQuery.toLowerCase())
@@ -51,6 +86,48 @@ export default function Matches() {
     // In a real app, this would navigate to chat with that user
     console.log('Starting chat with user:', userId);
     // You could navigate to /messages with a specific user ID
+  };
+
+  // Add some test matches for demo purposes
+  const addTestMatches = () => {
+    const testSwipes = [
+      { type: 'like' as const, userId: 'user_1', timestamp: new Date().toISOString() },
+      { type: 'like' as const, userId: 'user_2', timestamp: new Date().toISOString() },
+      { type: 'superlike' as const, userId: 'user_3', timestamp: new Date().toISOString() },
+    ];
+    
+    testSwipes.forEach(swipe => {
+      // Add to swipe history if not already present
+      if (!swipeHistory.some(s => s.userId === swipe.userId)) {
+        swipeUser(swipe);
+      }
+    });
+
+    // Also add test matches directly
+    const testMatches = [
+      {
+        id: `test_match_${Date.now()}`,
+        users: [authUser?.uid || 'test_user', 'user_1'],
+        matchedAt: new Date().toISOString(),
+        status: 'accepted' as const,
+        commonInterests: ['Travel', 'Adventure', 'Photography'],
+        compatibilityScore: 85
+      },
+      {
+        id: `test_match_${Date.now() + 1}`,
+        users: [authUser?.uid || 'test_user', 'user_2'],
+        matchedAt: new Date().toISOString(),
+        status: 'accepted' as const,
+        commonInterests: ['Culture', 'Food', 'Music'],
+        compatibilityScore: 92
+      }
+    ];
+
+    testMatches.forEach(match => {
+      addMatch(match);
+    });
+
+    console.log('Added test matches:', testMatches);
   };
 
   const formatTimeAgo = (timestamp: string) => {
@@ -205,7 +282,7 @@ export default function Matches() {
             <TabsList className="grid w-full max-w-md grid-cols-2">
               <TabsTrigger value="matches" className="flex items-center gap-2">
                 <Heart className="w-4 h-4" />
-                Matches ({mutualMatches.length})
+                Matches ({matchedUserObjects.length})
               </TabsTrigger>
               <TabsTrigger value="likes" className="flex items-center gap-2">
                 <Clock className="w-4 h-4" />
@@ -240,9 +317,14 @@ export default function Matches() {
                   <p className="text-muted-foreground mb-8 max-w-md mx-auto">
                     Start swiping on the Discover page to find travelers who share your interests and destinations.
                   </p>
-                  <Button variant="hero" asChild>
-                    <a href="/discover">Start Discovering</a>
-                  </Button>
+                  <div className="space-y-3">
+                    <Button variant="hero" asChild>
+                      <a href="/discover">Start Discovering</a>
+                    </Button>
+                    <Button variant="outline" onClick={addTestMatches} className="block mx-auto">
+                      Add Test Matches (Demo)
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-8">
@@ -291,6 +373,7 @@ export default function Matches() {
 
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
+      
     </div>
   );
 }

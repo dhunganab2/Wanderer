@@ -44,6 +44,7 @@ interface AppStore {
   // Swipe actions
   swipeUser: (action: SwipeAction) => void;
   addMatch: (match: Match) => void;
+  resetSwipeHistory: () => void;
   
   // Filter actions
   setFilters: (filters: Partial<FilterSettings>) => void;
@@ -114,6 +115,8 @@ export const useAppStore = create<AppStore>()(
       addMatch: (match) => set((state) => ({
         matches: [...state.matches, match]
       })),
+
+      resetSwipeHistory: () => set({ swipeHistory: [] }),
 
       // Filter actions
       setFilters: (newFilters) => set((state) => ({
