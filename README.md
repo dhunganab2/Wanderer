@@ -1,106 +1,104 @@
-# 🌍 Wanderer - Travel Companion Matching App
+# Wanderer - Travel Companion Matching App
 
-> Connect with like-minded travelers and discover your next adventure together!
+A modern travel companion matching application built with React, Node.js, and Firebase.
 
-![Wanderer Preview](https://via.placeholder.com/800x400/FF6B6B/FFFFFF?text=Wanderer+Travel+App)
+## Project Structure
 
-## ✨ Features
+```
+wanderer/
+├── frontend/          # React frontend application
+│   ├── src/          # Source code
+│   ├── public/       # Static assets
+│   └── package.json  # Frontend dependencies
+├── backend/          # Node.js backend API
+│   ├── src/          # Source code
+│   └── package.json  # Backend dependencies
+├── docs/             # Documentation
+└── package.json      # Root workspace configuration
+```
 
-### 🎯 Core Functionality
-- **Tinder-like Matching System** - Swipe to find travel companions
-- **Real-time Match Notifications** - Instant celebrations when you match
-- **Advanced Filtering** - Age, distance, travel styles, destinations
-- **Interactive Map** - View travelers by location with pins
-- **Profile Management** - Complete profile editing with photo uploads
-- **Messages Interface** - Chat with your matches
-- **Travel Planning** - Share destinations and travel dates
+## Getting Started
 
-### 🎨 Design & UX
-- **Beautiful UI** - Modern glass morphism design with custom gradients
-- **Dark/Light Mode** - Complete theme switching support
-- **Mobile-First** - Responsive design optimized for all devices
-- **Smooth Animations** - React Spring powered gestures and transitions
-- **Loading States** - Skeleton screens for better perceived performance
+### Prerequisites
 
-### 🛠 Technical Features
-- **TypeScript** - Full type safety throughout the application
-- **State Management** - Zustand with persistent storage
-- **Component Library** - shadcn/ui for consistent design
-- **Modern Build** - Vite for fast development and builds
-- **Gesture Support** - @use-gesture/react for native-like interactions
+- Node.js (v18 or higher)
+- npm or yarn
+- Firebase project setup
+
+### Installation
+
+1. Clone the repository
+2. Install all dependencies:
+   ```bash
+   npm run install:all
+   ```
+
+### Development
+
+Start both frontend and backend in development mode:
+```bash
+npm run dev
+```
+
+Or start them separately:
+```bash
+# Frontend only (runs on http://localhost:8080)
+npm run dev:frontend
+
+# Backend only (runs on http://localhost:3001)
+npm run dev:backend
+```
+
+### Building
+
+Build both frontend and backend:
+```bash
+npm run build
+```
+
+## Features
+
+- 🔐 User authentication with Firebase
+- 🗺️ Interactive maps with Google Maps
+- 💬 Real-time messaging
+- 🎯 Smart matching algorithm
+- 📱 Responsive design
+- 🚀 PWA capabilities
 
 ## Tech Stack
 
-- **Frontend**: React 18 + TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
-- **Build Tool**: Vite
-- **State Management**: Zustand
-- **Animations**: React Spring + @use-gesture/react
-- **Icons**: Lucide React
-- **Routing**: React Router DOM
+### Frontend
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- Radix UI
+- Firebase SDK
+- React Router
+- Zustand (state management)
 
-## 📱 Pages & Features
+### Backend
+- Node.js
+- Express.js
+- Firebase Admin SDK
+- CORS & Helmet
+- JWT authentication
 
-### 🏠 Landing Page
-- Hero section with compelling CTAs
-- Feature showcase with animated cards
-- Statistics and social proof
-- Sample user profiles preview
+## Environment Setup
 
-### 🔍 Discover Page
-- **Stack Mode**: Tinder-like card swiping
-- **Grid Mode**: Browse all travelers
-- **Advanced Filters**: Age, distance, travel styles, destinations
-- **Match Notifications**: Celebration animations when matched
+1. Copy `frontend/.env.example` to `frontend/.env.local`
+2. Copy `backend/env.example` to `backend/.env`
+3. Configure your Firebase credentials
+4. Update API endpoints as needed
 
-### 💕 Matches Page
-- View all mutual matches
-- See pending likes sent
-- Search through matches
-- Direct messaging from match cards
+## Contributing
 
-### 💬 Messages Page
-- Conversation list with previews
-- Real-time chat interface
-- User status indicators
-- Message search functionality
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-### 👤 Profile Page
-- Complete profile editing
-- Photo upload and management
-- Travel style customization
-- Next trip planning
+## License
 
-
-
-
-### Components
-- Glass morphism cards
-- Gradient backgrounds
-- Smooth hover effects
-- Animated loading states
-
-
-
-### SwipeableCard
-Real swipe gestures with visual feedback:
-- Drag to like/pass/super like
-- Visual indicators during swipe
-- Smooth spring animations
-- Touch and mouse support
-
-### FilterPanel
-Advanced filtering system:
-- Age range slider
-- Distance radius selector
-- Travel style multi-select
-- Destination search with autocomplete
-
-### TravelCard
-Beautiful user profile display:
-- Cover and profile photos
-- Travel information
-- Style tags and interests
-- Mutual connections indicator
-
-
+MIT License - see LICENSE file for details
