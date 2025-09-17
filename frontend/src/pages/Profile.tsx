@@ -33,6 +33,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { ChatLayout } from '@/components/ChatLayout';
+import { useParams } from 'react-router-dom';
+import { userService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { sampleUsers, travelStyleOptions } from '@/data/sampleUsers';
@@ -44,6 +46,7 @@ import type { User as UserType, TravelStyle } from '@/types';
 
 export default function Profile() {
   const { user, updateUserProfile, loading, error, setUser } = useUserProfile();
+  const { userId } = useParams();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<UserType | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -53,17 +56,28 @@ export default function Profile() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // Use Firebase user or fallback to sample user
-  const currentUser = user || sampleUsers[0];
+  // Use viewed user (route param) or fallback to current auth user
+  const [viewedUser, setViewedUser] = useState<UserType | null>(null);
+  const currentUser = viewedUser || user || sampleUsers[0];
 
-  // Update form when user data changes
+  // Load profile by route param (view other user's profile) or use self
   useEffect(() => {
-    if (user) {
-      console.log('🔍 Setting editForm from user:', user);
-      console.log('🔍 User interests:', user.interests);
-      setEditForm(user);
-    }
-  }, [user]);
+    const load = async () => {
+      if (userId) {
+        const u = await userService.getUserProfile(userId);
+        if (u) {
+          setViewedUser(u);
+          setEditForm(u);
+          return;
+        }
+      }
+      if (user) {
+        setViewedUser(user);
+        setEditForm(user);
+      }
+    };
+    load();
+  }, [userId, user]);
 
   // Load user images from database
   useEffect(() => {

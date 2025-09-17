@@ -25,14 +25,15 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { messagingService, typingIndicator } from '@/services/realtimeMessaging';
-import { sampleConversations, sampleMessages } from '@/data/enhancedSampleData';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { DebugInfo } from '@/components/DebugInfo';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { User, Message, Conversation } from '@/types';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { Link } from 'react-router-dom';
 
 function EnhancedMessagesContent() {
+  const { authUser } = useUserProfile();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -47,14 +48,16 @@ function EnhancedMessagesContent() {
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load sample conversations on mount
+  // Subscribe to real conversations for the current user
   useEffect(() => {
-    const conversationsWithOnlineStatus = sampleConversations.map(conv => ({
-      ...conv,
-      isOnline: Math.random() > 0.5 // Random online status for demo
-    }));
-    setConversations(conversationsWithOnlineStatus);
-  }, []);
+    if (!authUser?.uid) return;
+    const unsubscribe = messagingService.subscribeToConversations(authUser.uid, (list) => {
+      setConversations(list || []);
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [authUser?.uid]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -114,12 +117,12 @@ function EnhancedMessagesContent() {
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation) return;
+    if (!newMessage.trim() || !selectedConversation || !authUser?.uid) return;
     
     try {
       const messageData = {
-        matchId: selectedConversation.matchId,
-        senderId: 'current-user-id', // In real app, get from auth
+        matchId: selectedConversation.matchId || selectedConversation.id,
+        senderId: authUser.uid,
         content: newMessage.trim(),
         type: 'text' as const
       };
@@ -129,7 +132,7 @@ function EnhancedMessagesContent() {
       
       // Stop typing indicator
       if (isTyping) {
-        typingIndicator.stopTyping(selectedConversation.matchId, 'current-user-id');
+        typingIndicator.stopTyping(selectedConversation.matchId || selectedConversation.id, authUser.uid);
         setIsTyping(false);
       }
     } catch (error) {
@@ -149,12 +152,12 @@ function EnhancedMessagesContent() {
     const value = e.target.value;
     setNewMessage(value);
 
-    if (!selectedConversation) return;
+    if (!selectedConversation || !authUser?.uid) return;
 
     // Start typing indicator
     if (value.trim() && !isTyping) {
       setIsTyping(true);
-      typingIndicator.startTyping(selectedConversation.matchId, 'current-user-id');
+      typingIndicator.startTyping(selectedConversation.matchId || selectedConversation.id, authUser.uid);
     }
 
     // Clear existing timeout
@@ -165,7 +168,7 @@ function EnhancedMessagesContent() {
     // Set timeout to stop typing
     typingTimeoutRef.current = setTimeout(() => {
       if (isTyping) {
-        typingIndicator.stopTyping(selectedConversation.matchId, 'current-user-id');
+        typingIndicator.stopTyping(selectedConversation.matchId || selectedConversation.id, authUser.uid);
         setIsTyping(false);
       }
     }, 3000);
@@ -227,15 +230,15 @@ function EnhancedMessagesContent() {
   const emojis = ['😀', '😂', '😍', '🥰', '😘', '🤔', '😎', '🤗', '👍', '👎', '❤️', '🔥', '✨', '🎉', '👏', '🙌'];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen bg-background flex flex-col">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
-      <div className="pt-20 pb-24 h-screen flex">
+      <div className="pt-20 flex-1 flex overflow-hidden">
         {/* Conversations List */}
-        <div className="w-full md:w-80 lg:w-96 border-r flex flex-col bg-gradient-to-b from-background to-muted/30" style={{borderColor: 'hsl(var(--border) / 0.3)'}}>
+        <div className="w-full md:w-80 lg:w-96 border-r flex flex-col bg-gradient-to-b from-background/80 to-muted/30" style={{borderColor: 'hsl(var(--border) / 0.3)'}}>
           {/* Header */}
-          <div className="p-8 border-b bg-gradient-to-r from-background to-muted/20" style={{borderColor: 'hsl(var(--border) / 0.3)'}}>
+          <div className="p-8 border-b sticky top-0 z-10 bg-gradient-to-r from-background/80 to-muted/20 backdrop-blur-xl" style={{borderColor: 'hsl(var(--border) / 0.3)'}}>
             <h1 className="text-3xl font-bold text-foreground font-display mb-6 animate-fade-up">
               <span className="text-gradient">Messages</span>
             </h1>
@@ -279,12 +282,18 @@ function EnhancedMessagesContent() {
               >
                 <div className="flex items-start gap-4">
                   <div className="relative group">
-                    <Avatar className="w-14 h-14 ring-2 ring-warm-gray-200 group-hover:ring-sunrise-coral/50 transition-all duration-300">
-                      <AvatarImage src={conversation.participants?.[0]?.avatar} className="group-hover:scale-110 transition-transform duration-300" />
-                      <AvatarFallback className="bg-gradient-sunrise text-white font-semibold text-lg">
-                        {conversation.participants?.[0]?.name?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
+                    <Link
+                      to={`/profile/${(conversation.participants?.[0] as any)?.id || conversation.participants?.[0]}`}
+                      className="block"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Avatar className="w-14 h-14 ring-2 ring-warm-gray-200 group-hover:ring-sunrise-coral/50 transition-all duration-300">
+                        <AvatarImage src={(conversation.participants?.[0] as any)?.avatar} className="group-hover:scale-110 transition-transform duration-300" />
+                        <AvatarFallback className="bg-gradient-sunrise text-white font-semibold text-lg">
+                          {(conversation.participants?.[0] as any)?.name?.[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                    </Link>
                     {conversation.isOnline && (
                       <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-forest-green border-3 border-background rounded-full shadow-medium animate-pulse" />
                     )}
@@ -292,9 +301,13 @@ function EnhancedMessagesContent() {
                   
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-semibold text-foreground truncate">
-                        {conversation.participants?.[0]?.name}
-                      </h3>
+                      <Link
+                        to={`/profile/${(conversation.participants?.[0] as any)?.id || conversation.participants?.[0]}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-foreground truncate hover:underline"
+                      >
+                        {(conversation.participants?.[0] as any)?.name}
+                      </Link>
                       <span className="text-xs text-muted-foreground">
                         {conversation.lastMessage && formatTime(conversation.lastMessage.timestamp)}
                       </span>
@@ -325,11 +338,11 @@ function EnhancedMessagesContent() {
         </div>
 
         {/* Chat Area */}
-        <div className="hidden md:flex flex-1 flex-col">
+        <div className="hidden md:flex flex-1 flex-col bg-gradient-to-b from-background/60 to-muted/20">
           {selectedConversation ? (
             <>
               {/* Chat Header */}
-              <div className="p-4 border-b border-border/50 flex items-center justify-between">
+              <div className="p-4 border-b border-border/50 flex items-center justify-between sticky top-0 z-10 bg-background/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Avatar className="w-10 h-10">
@@ -436,7 +449,7 @@ function EnhancedMessagesContent() {
               </div>
 
               {/* Message Input */}
-              <div className="p-4 border-t border-border/50">
+              <div className="p-4 border-t border-border/50 bg-background/80 backdrop-blur-xl shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.2)]">
                 <div className="flex items-center gap-3">
                   <Button variant="ghost" size="icon" className="text-muted-foreground">
                     <Paperclip className="w-4 h-4" />
@@ -516,8 +529,7 @@ function EnhancedMessagesContent() {
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
       
-      {/* Debug Info - Only in development */}
-      <DebugInfo data={{ conversations: conversations.length, selectedConversation: !!selectedConversation }} label="Messages Debug" />
+      {/* Debug info removed for production cleanliness */}
     </div>
   );
 }
