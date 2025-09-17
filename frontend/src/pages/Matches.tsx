@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { sampleUsers } from '@/data/sampleUsers';
@@ -27,6 +28,7 @@ import type { User, Match } from '@/types';
 export default function Matches() {
   const { users, setUsers } = useAppStore();
   const { authUser } = useUserProfile();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [likes, setLikes] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
@@ -125,6 +127,10 @@ export default function Matches() {
     // In a real app, this would navigate to chat with that user
     console.log('Starting chat with user:', userId);
     // You could navigate to /messages with a specific user ID
+  };
+
+  const handleViewProfile = (userId: string) => {
+    navigate(`/profile/${userId}`);
   };
 
   // Refresh data from database
@@ -284,6 +290,7 @@ export default function Matches() {
                   variant="outline" 
                   size="sm" 
                   className="flex-1"
+                  onClick={() => handleViewProfile(user.id)}
                 >
                   View Profile
                 </Button>
@@ -293,6 +300,7 @@ export default function Matches() {
                 variant="outline" 
                 size="sm" 
                 className={cn("flex-1", isPending && "w-full")}
+                onClick={() => handleViewProfile(user.id)}
               >
                 View Profile
               </Button>
