@@ -152,6 +152,29 @@ export interface BucketListItem {
   notes?: string;
 }
 
+// Messaging Types
+export interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  type: 'text' | 'image' | 'location' | 'system';
+  timestamp: Date;
+  read: boolean;
+  matchId?: string; // For backward compatibility
+}
+
+export interface Conversation {
+  id: string;
+  participants: User[];
+  lastMessage: string | null;
+  lastMessageAt: Date;
+  unreadCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  matchId?: string; // For backward compatibility
+}
+
 // Component Props Types
 export interface TravelCardProps {
   user: User;
