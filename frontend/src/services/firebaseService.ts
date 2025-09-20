@@ -92,15 +92,27 @@ export const userService = {
 
   // Get user profile
   async getUserProfile(userId: string): Promise<User | null> {
-    const userDocRef = doc(db, 'users', userId);
-    const userSnap = await getDoc(userDocRef);
-    
-    if (userSnap.exists()) {
-      const firebaseProfile = { id: userSnap.id, ...userSnap.data() } as User;
-      return firebaseProfile;
+    try {
+      console.log('🔍 Fetching user profile for:', userId);
+      const userDocRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userDocRef);
+      
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        const firebaseProfile = { 
+          ...data,
+          id: data.id || userSnap.id  // Use data.id if available, fallback to doc.id
+        } as User;
+        console.log('✅ Found user profile:', firebaseProfile.name);
+        return firebaseProfile;
+      }
+      
+      console.log('❌ User profile not found');
+      return null;
+    } catch (error) {
+      console.error('❌ Error fetching user profile:', error);
+      throw error;
     }
-    
-    return null;
   },
 
   // Update user profile
@@ -120,18 +132,40 @@ export const userService = {
 
   // Get users for discovery (excluding current user and already swiped)
   async getDiscoveryUsers(currentUserId: string, swipedUserIds: string[] = []): Promise<User[]> {
-    const usersQuery = query(
-      collection(db, 'users'),
-      where('id', '!=', currentUserId),
-      limit(50)
-    );
-    
-    const querySnapshot = await getDocs(usersQuery);
-    const users = querySnapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() } as User))
-      .filter(user => !swipedUserIds.includes(user.id));
-    
-    return users;
+    try {
+      console.log('🔍 Fetching discovery users from Firebase...');
+      console.log('Current user ID:', currentUserId);
+      console.log('Swiped user IDs to exclude:', swipedUserIds.length);
+      
+      // Get all users first (since we can't use != with other filters efficiently)
+      // Increased limit to get all users from database
+      const usersQuery = query(collection(db, 'users'), limit(200));
+      
+      const querySnapshot = await getDocs(usersQuery);
+      console.log('📊 Total users found in Firebase:', querySnapshot.docs.length);
+      
+      const users = querySnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return { 
+            ...data,
+            id: data.id || doc.id  // Use data.id if available, fallback to doc.id
+          } as User;
+        })
+        .filter(user => {
+          const isNotCurrentUser = user.id !== currentUserId;
+          const notSwiped = !swipedUserIds.includes(user.id);
+          const hasRequiredFields = user.name && user.age && user.location;
+          
+          return isNotCurrentUser && notSwiped && hasRequiredFields;
+        });
+      
+      console.log('✅ Filtered discovery users:', users.length);
+      return users; // Return all available users
+    } catch (error) {
+      console.error('❌ Error fetching discovery users from Firebase:', error);
+      throw error;
+    }
   },
 
   // Get enhanced discovery users with compatibility scoring
@@ -139,7 +173,7 @@ export const userService = {
     currentUserId: string, 
     swipedUserIds: string[] = [], 
     filters: FilterSettings,
-    limit: number = 20
+    limit: number = 100
   ): Promise<User[]> {
     try {
       // Get current user
@@ -218,10 +252,11 @@ export const matchingService = {
         timestamp: serverTimestamp()
       });
 
-      // Check for mutual like to create match
-      if (swipeData.type === 'like' || swipeData.type === 'superlike') {
-        await this.checkForMatch(swipeData.swipedUserId, swipeData.userId);
-      }
+      console.log(`✅ Swipe recorded: ${swipeData.userId} ${swipeData.type}d ${swipeData.swipedUserId}`);
+      
+      // Don't automatically check for matches - let the UI handle this explicitly
+      // This ensures likes go to "Likes Sent" first, and only become matches when both users like each other
+      
     } catch (error) {
       console.warn('Firebase unavailable, using offline storage for swipe:', error);
       // Fallback to offline storage
@@ -352,22 +387,45 @@ export const matchingService = {
   },
 
   // Check for mutual match with enhanced compatibility scoring
-  async checkForMatch(userId1: string, userId2: string): Promise<void> {
+  async checkForMatch(userId1: string, userId2: string): Promise<boolean> {
     try {
-      const swipesQuery = query(
+      console.log('🔍 Checking for mutual match between:', userId1, 'and', userId2);
+      
+      // Check if userId2 has liked userId1
+      const reverseSwipesQuery = query(
         collection(db, 'swipes'),
-        where('userId', '==', userId1),
-        where('swipedUserId', '==', userId2),
+        where('userId', '==', userId2),
+        where('swipedUserId', '==', userId1),
         where('type', 'in', ['like', 'superlike'])
       );
 
-      const querySnapshot = await getDocs(swipesQuery);
+      const reverseQuerySnapshot = await getDocs(reverseSwipesQuery);
+      console.log('🔍 Found reverse swipes:', reverseQuerySnapshot.docs.length);
       
-      if (!querySnapshot.empty) {
+      if (!reverseQuerySnapshot.empty) {
+        console.log('🎉 Mutual like found! Creating match...');
+        
+        // Check if match already exists
+        const existingMatchQuery = query(
+          collection(db, 'matches'),
+          where('users', 'array-contains', userId1)
+        );
+        
+        const existingMatches = await getDocs(existingMatchQuery);
+        const matchExists = existingMatches.docs.some(doc => {
+          const data = doc.data();
+          return data.users.includes(userId2);
+        });
+        
+        if (matchExists) {
+          console.log('✅ Match already exists');
+          return true;
+        }
+        
         // Get both users for compatibility calculation
         const [user1, user2] = await Promise.all([
-          this.getUserProfile(userId1),
-          this.getUserProfile(userId2)
+          userService.getUserProfile(userId1),
+          userService.getUserProfile(userId2)
         ]);
 
         if (user1 && user2) {
@@ -379,18 +437,23 @@ export const matchingService = {
             user2.interests.includes(interest)
           );
 
-          // It's a match!
+          // Create the match!
           const matchData: Omit<Match, 'id'> = {
             users: [userId1, userId2],
             matchedAt: new Date().toISOString(),
-            status: 'pending',
+            status: 'accepted', // Set as accepted since both liked each other
             commonInterests,
             compatibilityScore: compatibility.overall
           };
 
           await addDoc(collection(db, 'matches'), matchData);
+          console.log('✅ Match created in Firebase database');
+          return true;
         }
       }
+      
+      console.log('👍 No mutual match yet');
+      return false;
     } catch (error) {
       console.error('Error checking for match:', error);
       throw error;

@@ -9,8 +9,10 @@ router.get('/messages/:conversationId', messagingController.getMessages);
 router.post('/messages', messagingController.sendMessage);
 router.post('/conversations', messagingController.createConversation);
 
-// Real-time messaging
-router.get('/conversations/:userId/live', messagingController.subscribeToConversations);
-router.get('/messages/:conversationId/live', messagingController.subscribeToMessages);
+// Message status routes
+router.put('/conversations/:conversationId/read', messagingController.markMessagesAsRead);
+
+// System info routes
+router.get('/online-users', messagingController.getOnlineUsers);
 
 export default router;

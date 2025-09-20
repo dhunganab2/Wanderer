@@ -1,4 +1,6 @@
 import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -10,15 +12,54 @@ import bucketListRoutes from './routes/bucketlist.js';
 import messagingRoutes from './routes/messaging.js';
 import aiRoutes from './routes/ai.js';
 
+// Import socket services
+import { socketAuth } from './middleware/socketAuth.js';
+import { SocketService } from './services/socketService.js';
+
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const server = createServer(app);
 const PORT = process.env.PORT || 3001;
+
+// Configure Socket.io with CORS
+const io = new Server(server, {
+  cors: {
+    origin: [
+      process.env.FRONTEND_URL || "http://localhost:8080",
+      "http://localhost:8080",
+      "http://localhost:8081"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
+});
+
+// Initialize Socket Service
+const socketService = new SocketService(io);
+
+// Socket.io authentication middleware
+io.use(socketAuth);
+
+// Socket.io connection handler
+io.on('connection', (socket) => {
+  socketService.initializeSocket(socket);
+});
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: [
+    process.env.FRONTEND_URL || "http://localhost:8080",
+    "http://localhost:8080",
+    "http://localhost:8081"
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -46,6 +87,9 @@ app.get('/api', (req, res) => {
   });
 });
 
+// Make socket service available to routes
+app.locals.socketService = socketService;
+
 // Mount route handlers
 app.use('/api/users', userRoutes);
 app.use('/api/matching', matchingRoutes);
@@ -70,7 +114,9 @@ app.use('*', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Backend server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`💬 WebSocket server ready for real-time messaging`);
+  console.log(`🔌 Socket.io endpoint: http://localhost:${PORT}`);
 });

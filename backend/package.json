@@ -9,7 +9,15 @@
     "dev": "nodemon src/index.js",
     "build": "echo 'Backend build process'",
     "test": "echo 'Backend tests'",
-    "seed": "node src/scripts/seedDatabase.js"
+    "seed": "node src/scripts/seedDatabase.js",
+    "migrate-users": "node src/scripts/migrateEnhancedUsers.js",
+    "verify-migration": "node src/scripts/verifyMigration.js",
+    "test-firebase": "node src/scripts/testFirebaseConnection.js",
+    "simulate-likes": "node src/scripts/simulateLikes.js",
+    "clear-matches": "node src/scripts/clearMatches.js",
+    "test-like-flow": "node src/scripts/testLikeFlow.js",
+    "clear-messages": "node src/scripts/clearMessages.js",
+    "debug-db": "node src/scripts/debugDatabase.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -22,7 +30,8 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-    "sharp": "^0.33.0"
+    "sharp": "^0.33.0",
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

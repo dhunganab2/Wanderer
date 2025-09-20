@@ -4,11 +4,13 @@ class AITravelService {
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is required');
+      console.warn('⚠️ GEMINI_API_KEY not provided - AI features will be disabled');
+      this.genAI = null;
+      this.model = null;
+    } else {
+      this.genAI = new GoogleGenerativeAI(apiKey);
+      this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     }
-
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     // System prompt for the AI Travel Buddy
     this.systemPrompt = `You are WanderBuddy, a friendly AI travel companion for the Wanderer app. You help users with travel planning and advice.
@@ -45,6 +47,14 @@ Keep it short, helpful, and friendly!`;
 
   async generateResponse(message, userContext = {}) {
     try {
+      if (!this.model) {
+        return {
+          success: false,
+          error: "AI features are currently unavailable. Please set up the GEMINI_API_KEY to enable AI travel assistance.",
+          timestamp: new Date().toISOString()
+        };
+      }
+
       // Prepare the context-aware prompt
       const contextPrompt = this.buildContextPrompt(userContext);
       const fullPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nUser Message: ${message}`;
