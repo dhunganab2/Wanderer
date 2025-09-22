@@ -319,6 +319,43 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
 
   const plan = parseTripPlan(content);
 
+  // Derive weather details from structured text when available
+  const parsedWeather = (() => {
+    const text = metadata?.rawData?.weather_and_packing?.current_conditions || plan.weather || '';
+
+    // Check if weather data is unavailable
+    if (text.toLowerCase().includes('not available') || text.toLowerCase().includes('data not available')) {
+      return {
+        temperature: 'N/A',
+        description: 'Weather data being gathered by specialists'
+      };
+    }
+
+    const tempMatch = text.match(/(-?\d+(?:\.\d+)?)\s*°?C/i);
+    const descMatch = text.match(/:\s*([^,]+),\s*([^,]+)/) || text.match(/,\s*([^,]+)\s*,?/);
+    return {
+      temperature: tempMatch ? `${Math.round(parseFloat(tempMatch[1]))}°C` : 'N/A',
+      description: descMatch ? (descMatch[2] || descMatch[1]).trim() : 'Perfect weather for your adventure'
+    };
+  })();
+
+  // Derived data from backend (with graceful fallbacks)
+  const packingRecommendations: string[] = (metadata?.rawData?.weather_and_packing?.packing_recommendations as string[] | undefined) || [];
+
+  const bestActivityTimes: string = (metadata?.rawData?.weather_and_packing?.best_activity_times as string | undefined) || 'Early mornings for sightseeing, evenings for food tours';
+
+  const culturalTips: string[] = (metadata?.rawData?.local_insights?.cultural_tips as string[] | undefined) || [];
+
+  // Handle language basics - agents return simple array of phrases
+  const languageBasics: Array<{ phrase: string; meaning: string }> = Array.isArray(metadata?.rawData?.local_insights?.language_basics)
+    ? (metadata!.rawData!.local_insights!.language_basics as string[]).map((phrase: string) => ({
+        phrase: phrase,
+        meaning: 'Basic phrase for local communication'
+      }))
+    : [];
+
+  const safetyNotes: string[] = (metadata?.rawData?.local_insights?.safety_notes as string[] | undefined) || [];
+
   const toggleDay = (day: number) => {
     const newExpanded = new Set(expandedDays);
     if (newExpanded.has(day)) {
@@ -393,8 +430,8 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               </div>
               <h3 className="font-bold text-white">Weather</h3>
             </div>
-            <p className="text-2xl font-bold text-purple-400 mb-1">21°C</p>
-            <p className="text-sm text-gray-300">Perfect for exploring</p>
+            <p className="text-2xl font-bold text-purple-400 mb-1">{parsedWeather.temperature}</p>
+            <p className="text-sm text-gray-300">{parsedWeather.description}</p>
           </div>
 
           <div className="p-6 bg-gradient-to-br from-forest-green/10 to-forest-green/5 rounded-2xl border border-forest-green/20">
@@ -435,24 +472,24 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
           {[
             {
               icon: Utensils,
-              title: "Authentic Sushi Experiences",
-              description: "At Tsukiji and local hidden gems",
+              title: `Local Food Experiences`,
+              description: `Taste authentic ${plan.destination} cuisine and street food`,
               color: "from-sunrise-coral to-sunrise-coral/80",
               bgColor: "from-sunrise-coral/10 to-sunrise-coral/5",
               borderColor: "border-sunrise-coral/20"
             },
             {
               icon: Building,
-              title: "Traditional Temple Visits",
-              description: "In Kyoto's historic districts",
+              title: `Iconic Landmarks`,
+              description: `Handpicked must-see sights around ${plan.destination}`,
               color: "from-sky-blue to-sky-blue/80",
               bgColor: "from-sky-blue/10 to-sky-blue/5",
               borderColor: "border-sky-blue/20"
             },
             {
               icon: Coffee,
-              title: "Street Food Tours",
-              description: "Local neighborhoods exploration",
+              title: "Neighborhood Walks",
+              description: "Explore vibrant local districts and markets",
               color: "from-forest-green to-forest-green/80",
               bgColor: "from-forest-green/10 to-forest-green/5",
               borderColor: "border-forest-green/20"
@@ -460,7 +497,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
             {
               icon: Heart,
               title: "Cultural Immersion",
-              description: "Authentic local activities",
+              description: "Authentic activities curated to your interests",
               color: "from-sunset-pink to-sunset-pink/80",
               bgColor: "from-sunset-pink/10 to-sunset-pink/5",
               borderColor: "border-sunset-pink/20"
@@ -493,7 +530,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   </p>
                                 </div>
                               </div>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-white/10 to-transparent rounded-full -translate-y-10 translate-x-10"></div>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-white/5 to-transparent rounded-full -translate-y-10 translate-x-10"></div>
             </motion.div>
           ))}
                           </div>
@@ -513,22 +550,22 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                         </div>
             
             <div className="space-y-4">
-              <div className="p-4 bg-white/40 backdrop-blur-sm rounded-2xl border border-white/50">
+              <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sky-blue/20">
                 <div className="flex items-center space-x-3">
                   <Sun className="w-6 h-6 text-sky-blue" />
                           <div>
-                    <p className="text-lg font-bold text-foreground">18-25°C</p>
-                    <p className="text-sm text-muted-foreground">Perfect weather for exploring</p>
+                    <p className="text-lg font-bold text-foreground">{parsedWeather.temperature}</p>
+                    <p className="text-sm text-muted-foreground capitalize">{parsedWeather.description}</p>
                           </div>
                         </div>
               </div>
               
-              <div className="p-4 bg-white/40 backdrop-blur-sm rounded-2xl border border-white/50">
+              <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sky-blue/20">
                 <div className="flex items-center space-x-3">
                   <Umbrella className="w-6 h-6 text-sky-blue" />
                           <div>
-                    <p className="text-lg font-bold text-foreground">Light rain expected</p>
-                    <p className="text-sm text-muted-foreground">Pack a light rain jacket</p>
+                    <p className="text-lg font-bold text-foreground">Packing tip</p>
+                    <p className="text-sm text-muted-foreground">{packingRecommendations[0] || 'Bring light layers and a compact rain jacket'}</p>
                           </div>
                         </div>
                           </div>
@@ -548,30 +585,36 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
             </div>
             
             <div className="space-y-4">
-              <div className="space-y-3">
-                {[
-                  'Light layers, rain jacket',
-                  'Comfortable walking shoes', 
-                  'Universal power adapter',
-                  'Portable WiFi or SIM card'
-                ].map((item, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="flex items-center space-x-3 p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/50"
-                  >
-                    <Check className="w-5 h-5 text-forest-green" />
-                    <span className="text-sm font-medium">{item}</span>
-                </motion.div>
-                ))}
-            </div>
+              {packingRecommendations.length > 0 ? (
+                <div className="space-y-3">
+                  {packingRecommendations.map((item, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className="flex items-center space-x-3 p-3 bg-gray-800/50 backdrop-blur-sm rounded-xl border border-sunset-pink/20"
+                    >
+                      <Check className="w-5 h-5 text-forest-green" />
+                      <span className="text-sm font-medium">{item}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center bg-card border border-border/50 rounded-2xl">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sunset-pink to-sunrise-coral flex items-center justify-center">
+                    <Backpack className="w-6 h-6 text-white" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Your packing specialist is preparing personalized recommendations based on your destination and activities.
+                  </p>
+                </div>
+              )}
               
-              <div className="p-4 bg-white/40 backdrop-blur-sm rounded-2xl border border-white/50">
+              <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sunset-pink/20">
                 <p className="text-sm flex items-center">
                   <Clock className="w-5 h-5 mr-3 text-sunset-pink" />
-                  <span><strong>Best Activity Times:</strong> Early morning for temples, evening for food tours</span>
+                  <span><strong>Best Activity Times:</strong> {bestActivityTimes}</span>
                 </p>
               </div>
             </div>
@@ -596,11 +639,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
         </div>
         
         <div className="grid gap-4">
-          {(plan.flights || [
-            { airline: 'ANA Airlines', price: '$850-1,200', duration: '12h 30m', type: 'Premium Economy' },
-            { airline: 'JAL Airlines', price: '$900-1,300', duration: '11h 45m', type: 'Business Class' },
-            { airline: 'United Airlines', price: '$750-1,100', duration: '13h 15m', type: 'Economy' }
-          ]).map((flight, index) => (
+          {plan.flights && plan.flights.length > 0 ? plan.flights.map((flight, index) => (
                 <motion.div
                   key={index}
                   whileHover={{ scale: 1.02 }}
@@ -632,9 +671,11 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                     <Plane className="w-6 h-6 text-orange-500" />
                     <div>
                       <h3 className="text-lg font-bold text-white">{flight.airline}</h3>
-                      <Badge variant="secondary" className="text-xs bg-gray-700 text-gray-200">
-                        {flight.type}
-                      </Badge>
+                      {flight.type && (
+                        <Badge variant="secondary" className="text-xs bg-gray-700 text-gray-200">
+                          {flight.type}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   
@@ -643,28 +684,28 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                       <DollarSign className="w-4 h-4 text-green-400" />
                     <div>
                         <p className="text-xs text-gray-400">Price</p>
-                        <p className="font-semibold text-green-400">{flight.price}</p>
+                        <p className="font-semibold text-green-400">{flight.price || '—'}</p>
                     </div>
                   </div>
                     <div className="flex items-center space-x-2">
                       <Clock className="w-4 h-4 text-purple-400" />
                       <div>
                         <p className="text-xs text-gray-400">Duration</p>
-                        <p className="font-semibold text-white">{flight.duration}</p>
+                        <p className="font-semibold text-white">{flight.duration || '—'}</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
                       <ArrowRight className="w-4 h-4 text-orange-500" />
                       <div>
                         <p className="text-xs text-gray-400">Departure</p>
-                        <p className="font-semibold text-white">10:30 AM</p>
+                        <p className="font-semibold text-white">{flight.departure || '—'}</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
                       <MapPin className="w-4 h-4 text-yellow-500" />
                       <div>
                         <p className="text-xs text-gray-400">Arrival</p>
-                        <p className="font-semibold text-white">2:00 PM (+1)</p>
+                        <p className="font-semibold text-white">{flight.arrival || '—'}</p>
                       </div>
                     </div>
                   </div>
@@ -672,13 +713,24 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   <div className="p-3 bg-gradient-to-r from-orange-500/5 to-transparent rounded-xl">
                     <p className="text-sm text-gray-300 flex items-center">
                       <Lightbulb className="w-4 h-4 mr-2 text-orange-500" />
-                      <strong>Why:</strong> {index === 0 ? 'Best balance of comfort and value' : index === 1 ? 'Premium service, shorter flight' : 'Most budget-friendly option'}
+                      <strong>Why:</strong> {flight.type ? `Good ${flight.type.toLowerCase()} value` : 'Balanced option'}
                     </p>
                   </div>
                 </div>
                   </div>
                 </motion.div>
-              ))}
+              )) : (
+                <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
+                    <Plane className="w-8 h-8 text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold text-foreground mb-2">Finding Best Flight Options</h3>
+                  <p className="text-muted-foreground">
+                    Your travel specialists are searching for the best flight deals and options.
+                    Real-time flight data will appear here once available.
+                  </p>
+                </div>
+              )}
             </div>
       </div>
 
@@ -695,11 +747,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
         </div>
         
         <div className="grid gap-4">
-          {(plan.hotels || [
-            { name: 'Ryokan Sakura', price: '$120/night', rating: '4.7/5', location: 'Traditional district, Kyoto' },
-            { name: 'Hotel Gracery Tokyo', price: '$180/night', rating: '4.5/5', location: 'Central Tokyo' },
-            { name: 'Park Hyatt Tokyo', price: '$400/night', rating: '4.8/5', location: 'Shinjuku, Tokyo' }
-          ]).map((hotel, index) => (
+          {plan.hotels && plan.hotels.length > 0 ? plan.hotels.map((hotel, index) => (
                 <motion.div
                   key={index}
                   whileHover={{ scale: 1.02 }}
@@ -731,14 +779,16 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                     <Hotel className="w-6 h-6 text-sunset-pink" />
                     <div>
                       <h3 className="text-lg font-bold text-foreground">{hotel.name}</h3>
-                      <div className="flex items-center space-x-2">
-                        <div className="flex items-center">
-                          {[...Array(5)].map((_, i) => (
-                            <Star key={i} className={cn("w-3 h-3", i < 4 ? "text-yellow-400 fill-current" : "text-gray-300")} />
-                          ))}
-                    </div>
-                        <span className="text-xs text-muted-foreground">{hotel.rating}</span>
-                      </div>
+                      {hotel.rating && (
+                        <div className="flex items-center space-x-2">
+                          <div className="flex items-center">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className={cn("w-3 h-3", i < 4 ? "text-yellow-400 fill-current" : "text-gray-300")} />
+                            ))}
+                          </div>
+                          <span className="text-xs text-muted-foreground">{hotel.rating}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -757,38 +807,51 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                         <p className="font-semibold text-sm">{hotel.location}</p>
                   </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Building className="w-4 h-4 text-sunrise-coral" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Style</p>
-                        <p className="font-semibold text-sm">{index === 0 ? 'Traditional inn' : index === 1 ? 'Modern hotel' : 'Luxury hotel'}</p>
+                    {hotel.amenities && hotel.amenities.length > 0 && (
+                      <div className="flex items-center space-x-2">
+                        <Building className="w-4 h-4 text-sunrise-coral" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">Amenities</p>
+                          <p className="font-semibold text-sm">{hotel.amenities.slice(0,3).join(', ')}</p>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                   
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Amenities:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(index === 0 ? ['Onsen', 'Tatami rooms', 'Kaiseki meals'] : 
-                        index === 1 ? ['Great location', 'Metro access', 'Modern rooms'] :
-                        ['Rooftop bar', 'Spa', 'City views']).map((amenity, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {amenity}
-                        </Badge>
-                      ))}
+                  {hotel.amenities && hotel.amenities.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Amenities:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {hotel.amenities.slice(0,8).map((amenity, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {amenity}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
                   <div className="p-3 bg-gradient-to-r from-sunset-pink/5 to-transparent rounded-xl">
                     <p className="text-sm text-muted-foreground flex items-center">
                       <Lightbulb className="w-4 h-4 mr-2 text-sunset-pink" />
-                      <strong>Why:</strong> {index === 0 ? 'Perfect for cultural immersion' : index === 1 ? 'Convenient base for city exploration' : 'Ultimate luxury experience'}
+                      <strong>Why:</strong> Great match for this itinerary
                     </p>
                   </div>
                 </div>
                   </div>
                 </motion.div>
-              ))}
+              )) : (
+                <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sunset-pink to-purple-600 flex items-center justify-center">
+                    <Hotel className="w-8 h-8 text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold text-foreground mb-2">Curating Perfect Accommodations</h3>
+                  <p className="text-muted-foreground">
+                    Your accommodation specialist is researching the best hotels that match your style and budget.
+                    Personalized recommendations will appear here shortly.
+                  </p>
+                </div>
+              )}
             </div>
       </div>
 
@@ -849,35 +912,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
       </div>
 
       <div className="space-y-4">
-        {(plan.itinerary || [
-          {
-            day: 1,
-            theme: 'Arrival & First Impressions',
-            morning: {
-              time: '9:00 AM - 12:00 PM',
-              activity: 'Check into Ryokan Sakura',
-              location: 'Traditional district',
-              description: 'First ramen experience at Ichiran',
-              cost_estimate: '$25-35'
-            },
-            afternoon: {
-              time: '12:00 PM - 6:00 PM',
-              activity: 'Visit Senso-ji Temple',
-              location: 'Asakusa',
-              description: 'Explore Asakusa traditional district and enjoy tea ceremony',
-              cost_estimate: '$40-60'
-            },
-            evening: {
-              time: '6:00 PM - 10:00 PM',
-              activity: 'Tokyo Skytree observation deck',
-              location: 'Skytree',
-              description: 'Sushi dinner at local izakaya',
-              cost_estimate: '$60-80'
-            },
-            daily_budget: '$125-175',
-            insider_tip: 'Book Skytree tickets online to avoid queues!'
-          }
-        ]).map((day, index) => (
+        {plan.itinerary && plan.itinerary.length > 0 ? plan.itinerary.map((day) => (
           <Card key={day.day} className="border border-border/50 shadow-soft overflow-hidden">
             <CardHeader 
               className="cursor-pointer hover:bg-muted/30 transition-colors"
@@ -1032,7 +1067,18 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               )}
             </AnimatePresence>
       </Card>
-        ))}
+        )) : (
+          <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sunset-pink to-sunrise-coral flex items-center justify-center">
+              <Calendar className="w-8 h-8 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Itinerary Being Crafted</h3>
+            <p className="text-muted-foreground">
+              Your AI travel specialists are working hard to create the perfect day-by-day plan for your adventure.
+              Please wait while they coordinate the best experiences for you!
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1066,17 +1112,19 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   Clothing
                 </h4>
                 <div className="space-y-2">
-                  {[
-                    'Light layers (18-25°C weather)',
-                    'Rain jacket (light rain expected)',
-                    'Comfortable walking shoes',
-                    'Modest clothing for temples'
-                  ].map((item, index) => (
+                  {packingRecommendations.length > 0 ? packingRecommendations.slice(0, 4).map((item, index) => (
                     <div key={index} className="flex items-center space-x-2 text-sm">
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
-                </div>
-                  ))}
+                    </div>
+                  )) : (
+                    <div className="text-center py-4">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-sunrise-coral to-sunset-pink flex items-center justify-center">
+                        <Camera className="w-4 h-4 text-white" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Agent preparing recommendations...</p>
+                    </div>
+                  )}
               </div>
               </div>
                 <div>
@@ -1085,17 +1133,19 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   Electronics
                 </h4>
                 <div className="space-y-2">
-                  {[
-                    'Universal adapter',
-                    'Portable WiFi or SIM card',
-                    'Translation app',
-                    'Offline maps download'
-                  ].map((item, index) => (
+                  {packingRecommendations.length > 4 ? packingRecommendations.slice(4, 8).map((item, index) => (
                     <div key={index} className="flex items-center space-x-2 text-sm">
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="text-center py-4">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
+                        <Phone className="w-4 h-4 text-white" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Tech recommendations coming...</p>
+                    </div>
+                  )}
                 </div>
                 </div>
                 <div>
@@ -1104,17 +1154,19 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   Extras
                 </h4>
                 <div className="space-y-2">
-                  {[
-                    'Cash (many places don\'t take cards)',
-                    'Hand sanitizer',
-                    'Small backpack for day trips',
-                    'Copies of important documents'
-                  ].map((item, index) => (
+                  {packingRecommendations.length > 8 ? packingRecommendations.slice(8, 12).map((item, index) => (
                     <div key={index} className="flex items-center space-x-2 text-sm">
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
-                </div>
-                  ))}
+                    </div>
+                  )) : (
+                    <div className="text-center py-4">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-forest-green to-emerald-500 flex items-center justify-center">
+                        <Gift className="w-4 h-4 text-white" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Essential extras loading...</p>
+                    </div>
+                  )}
               </div>
             </div>
           </div>
@@ -1170,17 +1222,21 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
           </CardTitle>
         </CardHeader>
             <CardContent className="space-y-3">
-              {[
-                { icon: '🏮', tip: 'Bow when greeting (traditional respect)' },
-                { icon: '🍜', tip: 'Slurp your noodles (shows appreciation)' },
-                { icon: '🚫', tip: 'Don\'t tip (not customary in Japan)' },
-                { icon: '📱', tip: 'Download Google Translate app' }
-              ].map((item, index) => (
+              {culturalTips.length > 0 ? culturalTips.map((tip, index) => (
                 <div key={index} className="flex items-center space-x-3 p-3 bg-gradient-to-r from-sky-blue/5 to-transparent rounded-xl">
-                  <span className="text-lg">{item.icon}</span>
-                  <span className="text-sm">{item.tip}</span>
+                  <Globe className="w-4 h-4 text-sky-blue" />
+                  <span className="text-sm">{tip}</span>
                   </div>
-                ))}
+                )) : (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
+                      <Globe className="w-6 h-6 text-white" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Cultural specialist is gathering local insights for your destination.
+                    </p>
+                  </div>
+                )}
             </CardContent>
           </Card>
 
@@ -1192,20 +1248,24 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {[
-                { japanese: 'こんにちは', romaji: 'Konnichiwa', english: 'Hello' },
-                { japanese: 'ありがとう', romaji: 'Arigato', english: 'Thank you' },
-                { japanese: 'すみません', romaji: 'Sumimasen', english: 'Excuse me' },
-                { japanese: 'おいしい', romaji: 'Oishii', english: 'Delicious' }
-              ].map((phrase, index) => (
+              {languageBasics.length > 0 ? languageBasics.map((phrase, index) => (
                 <div key={index} className="p-3 bg-gradient-to-r from-sunset-pink/5 to-transparent rounded-xl">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="font-bold">{phrase.japanese}</span>
-                    <span className="text-muted-foreground">{phrase.english}</span>
+                    <span className="font-bold">{phrase.phrase}</span>
+                    <span className="text-muted-foreground">{phrase.meaning}</span>
               </div>
-                  <p className="text-xs text-muted-foreground italic">({phrase.romaji})</p>
+
                 </div>
-              ))}
+              )) : (
+                <div className="text-center py-6">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sunset-pink to-purple-600 flex items-center justify-center">
+                    <Languages className="w-6 h-6 text-white" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Language specialist is preparing essential phrases for your trip.
+                  </p>
+                </div>
+              )}
         </CardContent>
       </Card>
         </div>
@@ -1220,17 +1280,21 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
         </CardHeader>
         <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                { icon: <Train className="w-4 h-4 text-sky-blue" />, tip: 'Keep metro card handy' },
-                { icon: <Phone className="w-4 h-4 text-sunrise-coral" />, tip: 'Save emergency numbers' },
-                { icon: <CreditCard className="w-4 h-4 text-forest-green" />, tip: 'Carry cash for smaller establishments' },
-                { icon: <Map className="w-4 h-4 text-sunset-pink" />, tip: 'Download offline maps' }
-              ].map((item, index) => (
+              {safetyNotes.length > 0 ? safetyNotes.map((tip, index) => (
                 <div key={index} className="flex items-center space-x-3 p-3 bg-gradient-to-r from-forest-green/5 to-transparent rounded-xl">
-                  {item.icon}
-                  <span className="text-sm">{item.tip}</span>
+                  <Shield className="w-4 h-4 text-forest-green" />
+                  <span className="text-sm">{tip}</span>
                 </div>
-              ))}
+              )) : (
+                <div className="col-span-2 text-center py-6">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-forest-green to-emerald-500 flex items-center justify-center">
+                    <Shield className="w-6 h-6 text-white" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Safety specialist is preparing personalized recommendations for your destination.
+                  </p>
+                </div>
+              )}
               </div>
           </CardContent>
         </Card>

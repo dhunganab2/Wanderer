@@ -334,6 +334,11 @@ const AITravelPlanner: React.FC = () => {
     const isUser = message.role === 'user';
     const isTyping = message.isTyping;
 
+    // Avoid duplicate thinking indicators: hide typing bubble when bottom bar is active
+    if (isTyping && isAIThinking) {
+      return null;
+    }
+
     return (
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -548,6 +553,7 @@ const AITravelPlanner: React.FC = () => {
               <AnimatePresence mode="sync">
                 {messages.length === 0 && (
                   <motion.div
+                    key="empty-state"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center py-16"
@@ -603,16 +609,17 @@ const AITravelPlanner: React.FC = () => {
                   </motion.div>
                 )}
 
-                <div style={{ minHeight: '100px' }}>
+                <motion.div key="messages-list" style={{ minHeight: '100px' }}>
                   {messages.map((message, index) => (
                     <div key={`message-${message.id || 'temp'}-${index}-${message.timestamp}`}>
                       {renderMessage(message)}
                     </div>
                   ))}
-                </div>
+                </motion.div>
 
                 {/* Agent Status Display - Inside chat flow */}
                 <AgentStatusDisplay
+                  key="agent-status"
                   isVisible={agentStatus.isVisible}
                   stage={agentStatus.stage}
                   message={agentStatus.message}
@@ -622,6 +629,7 @@ const AITravelPlanner: React.FC = () => {
 
                 {error && (
                   <motion.div
+                    key="error-banner"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}

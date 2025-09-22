@@ -1082,14 +1082,14 @@ User question: ${message}`;
 
     // Extract destination using destination parsing patterns
     const destinationPatterns = [
-      // "plan/create to [destination]" - most specific first - capture multi-word destinations
-      /(?:plan|create).*?(?:to|for)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
-      // "to [destination]" patterns - capture full city names
-      /(?:to|visit)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
-      // "trip to [destination]" patterns - capture full destination names
-      /(?:trip|travel|vacation|holiday)\s+(?:to|in)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
-      // "going to [destination]" patterns
-      /(?:going\s+to)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
+      // "plan/create to [destination]" - most specific first - stop at companion words
+      /(?:plan|create).*?(?:to|for)\s+([a-zA-Z\s]+?)(?:\s+(?:with|and|for|in|\d)|$)/i,
+      // "to [destination]" patterns - stop at companion words
+      /(?:to|visit)\s+([a-zA-Z\s]+?)(?:\s+(?:with|and|for|in|\d)|$)/i,
+      // "trip to [destination]" patterns - stop at companion words
+      /(?:trip|travel|vacation|holiday)\s+(?:to|in)\s+([a-zA-Z\s]+?)(?:\s+(?:with|and|for|\d)|$)/i,
+      // "going to [destination]" patterns - stop at companion words
+      /(?:going\s+to)\s+([a-zA-Z\s]+?)(?:\s+(?:with|and|for|\d)|$)/i,
       // "[destination] [duration]" style
       /^([a-zA-Z\s]+?)\s+\d+\s+(?:day|days|week|weeks)/i
     ];
@@ -1097,9 +1097,9 @@ User question: ${message}`;
     for (const pattern of destinationPatterns) {
       const match = cleanMessage.match(pattern);
       if (match && match[1] && match[1].trim().length > 2) {
-        // Further clean the destination
+        // Further clean the destination - remove travel words and common names
         let destination = match[1].trim()
-          .replace(/\b(?:solo|alone|going|trip|plan|itinerary|with|for)\b/gi, '')
+          .replace(/\b(?:solo|alone|going|trip|plan|itinerary|with|for|bull|john|jane|mike|sara|alex|chris|david|emma|lisa|mark|anna|tom|amy|sam)\b/gi, '')
           .replace(/\s+/g, ' ')
           .trim();
 
