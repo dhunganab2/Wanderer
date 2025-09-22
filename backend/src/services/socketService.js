@@ -306,6 +306,29 @@ export class SocketService {
   }
 
   /**
+   * Send AI travel planning status update to specific user
+   */
+  sendStatusUpdate(userId, statusData) {
+    try {
+      console.log(`📡 Sending AI status update to user ${userId}:`, statusData.stage);
+      const success = this.sendToUser(userId, 'ai_status_update', {
+        type: 'travel_planning_status',
+        timestamp: new Date().toISOString(),
+        ...statusData
+      });
+
+      if (!success) {
+        console.warn(`⚠️ Failed to send status update to user ${userId} (user not connected)`);
+      }
+
+      return success;
+    } catch (error) {
+      console.error('Error sending status update:', error);
+      return false;
+    }
+  }
+
+  /**
    * Ensure conversation exists for a matchId
    */
   async ensureConversationExists(conversationId, currentUserId) {

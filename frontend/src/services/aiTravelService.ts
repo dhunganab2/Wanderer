@@ -12,23 +12,31 @@ class AITravelService {
 
   constructor(config?: AIServiceConfig) {
     this.baseUrl = config?.baseUrl || 'http://localhost:3001/api/ai';
-    this.timeout = config?.timeout || 30000;
+    this.timeout = config?.timeout || 120000; // 2 minutes for complex trip planning
   }
 
   private async makeRequest<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    userContext?: AIUserContext
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
+    // Get user ID from context or localStorage
+    const userId = userContext?.userId ||
+                   userContext?.currentUser?.uid ||
+                   localStorage.getItem('current_user_id') ||
+                   'unknown_user';
+
     try {
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
           'x-conversation-id': this.getConversationId(),
+          'x-user-id': userId,
           ...options.headers,
         },
         signal: controller.signal,
@@ -77,9 +85,42 @@ class AITravelService {
           message: message.trim(),
           userContext: userContext || {}
         }),
-      });
+      }, userContext);
       console.log('🤖 Backend response:', response);
-      return response;
+      
+      // Handle the response properly
+      if (response.success && response.data) {
+        // Check if the message is a structured trip plan response
+        if (response.data.message && typeof response.data.message === 'object' && response.data.message.content) {
+          return {
+            success: true,
+            data: {
+              message: response.data.message.content,
+              timestamp: response.data.timestamp,
+              type: response.data.message.type || response.data.type || 'chat',
+              metadata: {
+                ...response.data.metadata,
+                rawData: response.data.message.rawData || response.data.metadata?.rawData
+              }
+            }
+          };
+        } else {
+          return {
+            success: true,
+            data: {
+              message: response.data.message,
+              timestamp: response.data.timestamp,
+              type: response.data.type || 'chat',
+              metadata: {
+                ...response.data.metadata,
+                rawData: response.data.metadata?.rawData
+              }
+            }
+          };
+        }
+      } else {
+        throw new Error(response.error || 'Backend returned unsuccessful response');
+      }
     } catch (error) {
       console.error('AI Chat Service - Send Message Error:', error);
       console.log('🤖 Falling back to mock response');
@@ -120,23 +161,56 @@ class AITravelService {
       success: true,
       data: {
         message: response,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        type: 'chat'
       }
     };
   }
 
   async getWelcomeMessage(userContext?: AIUserContext): Promise<AIWelcomeResponse> {
     try {
-      // Mock welcome message
+      // Try to get personalized welcome from backend first
+      try {
+        const response = await this.makeRequest<AIWelcomeResponse>('/welcome', {
+          method: 'POST',
+          body: JSON.stringify({
+            userProfile: userContext?.userProfile || {}
+          }),
+        }, userContext);
+
+        if (response.success && response.data) {
+          return response;
+        }
+      } catch (error) {
+        console.log('Backend welcome failed, using fallback');
+      }
+
+      // Fallback to personalized mock welcome
       await new Promise(resolve => setTimeout(resolve, 800));
 
       const userProfile = userContext?.userProfile;
       const userName = userProfile?.name || 'fellow wanderer';
+      const hasDestinations = userProfile?.bucketList && userProfile.bucketList.length > 0;
+      const hasInterests = userProfile?.interests && userProfile.interests.length > 0;
+
+      let personalizedMessage = `🌟 Welcome back, ${userName}! I'm WanderBuddy, your AI travel companion. `;
+      
+      if (hasDestinations) {
+        const topDestinations = userProfile.bucketList.slice(0, 3).join(', ');
+        personalizedMessage += `I see you're dreaming of ${topDestinations}! `;
+      }
+      
+      if (hasInterests) {
+        const topInterests = userProfile.interests.slice(0, 2).join(' and ');
+        personalizedMessage += `I know you love ${topInterests}, so I'll tailor my recommendations just for you! `;
+      }
+
+      personalizedMessage += `\n\n**I can help you with:**\n• Plan complete trips with real-time data\n• Find destinations matching your interests\n• Create detailed itineraries with flights & hotels\n• Discover local culture and hidden gems\n• Provide safety tips and cultural insights\n\nWhat adventure should we plan today? ✈️`;
 
       return {
         success: true,
         data: {
-          message: `🌟 Welcome to WanderBuddy, ${userName}! I'm your AI travel companion, ready to help you plan incredible adventures.\n\n**I can assist you with:**\n• Finding amazing destinations based on your interests\n• Creating budget-friendly travel plans\n• Discovering local culture and hidden gems\n• Providing safety tips and packing advice\n• Connecting you with like-minded travelers\n\nReady to explore the world? Ask me anything or choose a quick option below! ✈️`,
+          message: personalizedMessage,
           timestamp: new Date().toISOString()
         }
       };

@@ -1,4 +1,11 @@
 import admin from 'firebase-admin';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Load environment variables
+dotenv.config();
 
 let firebaseInitialized = false;
 let mockMode = process.env.USE_MOCK_DB === 'true' || false;
@@ -14,9 +21,27 @@ if (!admin.apps.length) {
       ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
       : null;
 
-    if (serviceAccount) {
+    // Try to load service account from file if not in env
+    let serviceAccountKey = serviceAccount;
+    if (!serviceAccountKey && process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH) {
+      try {
+        const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH;
+        console.log('🔍 Looking for service account key at:', serviceAccountPath);
+        if (fs.existsSync(serviceAccountPath)) {
+          const serviceAccountFile = fs.readFileSync(serviceAccountPath, 'utf8');
+          serviceAccountKey = JSON.parse(serviceAccountFile);
+          console.log('✅ Loaded service account from file');
+        } else {
+          console.log('⚠️ Service account file not found at:', serviceAccountPath);
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to load service account from file:', error.message);
+      }
+    }
+
+    if (serviceAccountKey) {
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+        credential: admin.credential.cert(serviceAccountKey),
         projectId: projectId,
         databaseURL: `https://${projectId}-default-rtdb.firebaseio.com`,
         storageBucket: `${projectId}.appspot.com`
@@ -42,8 +67,9 @@ if (!admin.apps.length) {
 }
 
 // File-based persistent storage for development
-import fs from 'fs';
-import path from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');

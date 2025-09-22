@@ -4,7 +4,8 @@ import { userController } from '../controllers/userController.js';
 const router = express.Router();
 
 // User profile routes
-router.get('/:userId', userController.getUserProfile);
+router.get('/profile/:userId', userController.getUserProfile);
+router.get('/:userId', userController.getUserProfile); // Fallback for compatibility
 router.post('/', userController.createUserProfile);
 router.put('/:userId', userController.updateUserProfile);
 router.delete('/:userId', userController.deleteUserProfile);

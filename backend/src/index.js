@@ -1,9 +1,12 @@
+// Load environment variables FIRST before any other imports
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 
 // Import routes
 import userRoutes from './routes/users.js';
@@ -15,9 +18,6 @@ import aiRoutes from './routes/ai.js';
 // Import socket services
 import { socketAuth } from './middleware/socketAuth.js';
 import { SocketService } from './services/socketService.js';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const server = createServer(app);
@@ -57,16 +57,35 @@ app.use(cors({
     "http://localhost:8081"
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-conversation-id', 'x-user-id'],
   credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'Wanderer Backend API is running',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      users: '/api/users',
+      matching: '/api/matching',
+      bucketlist: '/api/bucketlist',
+      messaging: '/api/messaging',
+      ai: '/api/ai'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Basic health check route
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Wanderer Backend API is running',
     timestamp: new Date().toISOString()
   });

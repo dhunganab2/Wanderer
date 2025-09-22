@@ -5,16 +5,29 @@ export const userController = {
   async getUserProfile(req, res) {
     try {
       const { userId } = req.params;
+      console.log(`🔍 Backend: Fetching user profile for ${userId}`);
+      
       const user = await userService.getUserProfile(userId);
       
       if (!user) {
-        return res.status(404).json({ error: 'User not found' });
+        console.log(`❌ Backend: User ${userId} not found`);
+        return res.status(404).json({ 
+          success: false, 
+          error: 'User not found' 
+        });
       }
       
-      res.json(user);
+      console.log(`✅ Backend: Found user profile for ${user.name || userId}`);
+      res.json({ 
+        success: true, 
+        data: user 
+      });
     } catch (error) {
-      console.error('Error getting user profile:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('❌ Backend: Error getting user profile:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Internal server error' 
+      });
     }
   },
 

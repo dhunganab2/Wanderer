@@ -2,7 +2,14 @@ import AITravelService from '../services/aiTravelService.js';
 
 class AIController {
   constructor() {
-    this.aiService = new AITravelService();
+    this.aiService = null; // Lazy initialization
+  }
+
+  getAIService() {
+    if (!this.aiService) {
+      this.aiService = new AITravelService();
+    }
+    return this.aiService;
   }
 
   // Chat with AI Travel Buddy
@@ -17,8 +24,25 @@ class AIController {
         });
       }
 
+      // Get user ID from headers for real-time updates
+      const userId = req.headers['x-user-id'] || userContext.userId;
+      const socketService = req.app.locals.socketService;
+
+      // Enhanced user context with current user ID
+      const enhancedUserContext = {
+        ...userContext,
+        userId: userId,
+        currentUser: userId // For backward compatibility
+      };
+
+      console.log(`🤖 AI Chat Request from user: ${userId}, message: "${message.substring(0, 50)}..."`);
+
       // Rate limiting check (handled by middleware)
-      const response = await this.aiService.generateResponse(message, userContext);
+      const response = await this.getAIService().generateResponse(
+        message,
+        enhancedUserContext,
+        socketService
+      );
 
       if (!response.success) {
         return res.status(500).json(response);
@@ -29,6 +53,8 @@ class AIController {
         data: {
           message: response.message,
           timestamp: response.timestamp,
+          type: response.type || 'chat',
+          metadata: response.metadata || {},
           conversationId: req.headers['x-conversation-id'] || 'default'
         }
       });
@@ -45,7 +71,7 @@ class AIController {
   // Get quick action prompts
   async getQuickActions(req, res) {
     try {
-      const quickActions = this.aiService.getQuickActions();
+      const quickActions = this.getAIService().getQuickActions();
 
       res.json({
         success: true,
@@ -66,7 +92,7 @@ class AIController {
     try {
       const { userProfile = {} } = req.body;
 
-      const welcomeMessage = this.aiService.generateWelcomeMessage(userProfile);
+      const welcomeMessage = this.getAIService().generateWelcomeMessage(userProfile);
 
       res.json({
         success: true,
@@ -90,7 +116,7 @@ class AIController {
   async healthCheck(req, res) {
     try {
       // Test a simple AI request
-      const testResponse = await this.aiService.generateResponse(
+      const testResponse = await this.getAIService().generateResponse(
         "Hello, this is a health check.",
         {}
       );

@@ -6,6 +6,24 @@ export interface AIChatMessage {
   role: 'user' | 'assistant';
   timestamp: string;
   isTyping?: boolean;
+  type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'welcome';
+  metadata?: {
+    destination?: string;
+    travelers?: string[];
+    duration?: number;
+    trip_type?: 'solo' | 'group';
+    rawData?: any;
+    userProfile?: {
+      name?: string;
+      age?: number;
+      location?: string;
+      travelStyle?: string[];
+      interests?: string[];
+      bucketList?: string[];
+      travelExperience?: string;
+      preferredBudget?: string;
+    };
+  };
 }
 
 export interface AIQuickAction {
@@ -49,6 +67,24 @@ export interface AIChatResponse {
     message: string;
     timestamp: string;
     conversationId?: string;
+    type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'welcome';
+    metadata?: {
+      destination?: string;
+      travelers?: string[];
+      duration?: number;
+      trip_type?: 'solo' | 'group';
+      rawData?: any;
+      userProfile?: {
+        name?: string;
+        age?: number;
+        location?: string;
+        travelStyle?: string[];
+        interests?: string[];
+        bucketList?: string[];
+        travelExperience?: string;
+        preferredBudget?: string;
+      };
+    };
   };
   error?: string;
 }
@@ -75,7 +111,6 @@ export interface AIChatState {
   messages: AIChatMessage[];
   isLoading: boolean;
   error: string | null;
-  quickActions: AIQuickAction[];
   currentSessionId: string;
   hasWelcomed: boolean;
 }

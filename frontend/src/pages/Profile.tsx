@@ -32,7 +32,6 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
-import { ChatLayout } from '@/components/ChatLayout';
 import { useParams, useNavigate } from 'react-router-dom';
 import { userService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
@@ -355,8 +354,7 @@ export default function Profile() {
   }
 
   return (
-    <ChatLayout>
-      <div className="h-full bg-background overflow-y-auto">
+    <div className="h-full bg-background overflow-y-auto">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
@@ -966,11 +964,9 @@ export default function Profile() {
         }}
       />
 
-      </div>
-
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
       </div>
-    </ChatLayout>
+    </div>
   );
 }

@@ -1,73 +1,327 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 class AITravelService {
   constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.warn('⚠️ GEMINI_API_KEY not provided - AI features will be disabled');
+    // In-memory conversation state storage (in production, use Redis or database)
+    this.conversationStates = new Map();
+
+    // API Key rotation system
+    this.apiKeys = [
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_BACKUP,
+      process.env.GEMINI_API_KEY_BACKUP_2
+    ].filter(key => key); // Remove any undefined keys
+
+    this.currentKeyIndex = 0;
+    this.keyUsageCount = new Map(); // Track usage per key
+    this.maxUsagePerKey = 50; // Switch keys after this many requests
+    this.exhaustedKeys = new Set(); // Track which keys are rate limited
+    this.keyExhaustionTime = new Map(); // Track when keys were exhausted
+    this.quotaResetHours = 24; // Quotas reset every 24 hours
+
+    if (this.apiKeys.length === 0) {
+      console.warn('⚠️ No GEMINI_API_KEY provided - AI features will be disabled');
       this.genAI = null;
       this.model = null;
     } else {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      console.log(`🔑 Initialized with ${this.apiKeys.length} API key(s)`);
+      this.initializeGemini();
     }
 
+    // Path to Python travel agent system (use working version)
+    this.pythonScriptPath = path.join(__dirname, 'working_travel_agent.py');
+
     // System prompt for the AI Travel Buddy
-    this.systemPrompt = `You are WanderBuddy, a friendly AI travel companion for the Wanderer app. You help users with travel planning and advice.
+    this.systemPrompt = `You are WanderBuddy, a super chill and enthusiastic AI travel companion for the Wanderer app. You're like that friend who's been everywhere and loves helping people discover amazing places.
 
 PERSONALITY:
-- Friendly and helpful, like chatting with a travel buddy
-- Concise but warm responses (1-3 sentences typically)
-- Use occasional travel emojis (✈️, 🗺️, 🏔️, 🌍)
-- Be conversational and natural
-
-EXPERTISE:
-- Destination recommendations
-- Budget travel tips
-- Cultural insights and etiquette
-- Safety advice
-- Hidden gems and local spots
-- Transportation and accommodation
-- Packing and preparation tips
+- Genuine excitement about travel (but not over-the-top)
+- Conversational and relaxed, like texting a knowledgeable friend
+- Use casual language and avoid corporate-speak
+- Show real enthusiasm when someone mentions cool destinations
+- Remember what they've told you and reference it naturally
+- Use travel emojis naturally (not excessively): ✈️ 🗺️ 🏔️ 🌍 🎒
 
 RESPONSE STYLE:
-- Keep responses SHORT and conversational (like texting a friend)
-- For simple greetings, respond simply
-- Ask ONE follow-up question if helpful
-- Be specific and actionable
-- Match the user's energy level
+- Chat like a real person - use contractions, casual phrases
+- Keep it conversational and flowing naturally
+- Avoid structured lists unless specifically asked
+- Ask follow-up questions that show genuine interest
+- Match their energy - if they're excited, be excited too
+- Use "I" statements to make it personal ("I love that place!", "I've got some great ideas...")
+
+CONVERSATION FLOW:
+- Don't rush to trip planning mode unless they clearly want a full itinerary
+- For general questions, give helpful info and naturally check if they want more
+- Build on what they say instead of giving generic responses
+- Show you're listening by referencing specific things they mention
+
+EXPERTISE SHARING:
+- Share insights like personal experiences ("That place is incredible for...")
+- Give practical tips without making it feel like a lecture
+- Offer to dive deeper instead of dumping all info at once
+- Connect recommendations to what they actually care about
 
 EXAMPLES:
-User: "hi" → "Hey! 👋 Planning any trips soon?"
-User: "I want to visit Japan" → "Amazing choice! 🇯🇵 When are you thinking of going? Season makes a big difference there."
-User: "budget tips" → "Love budget travel! 💰 Best tips: stay in hostels, eat street food, use public transport, and book flights in advance. What's your destination?"
+User: "hi" → "Hey there! 👋 What's got you thinking about travel today?"
+User: "I want to visit Japan" → "Oh, Japan is absolutely amazing! 🇯🇵 What's drawing you there? The food scene, temples, cities, nature...? I can point you toward the perfect spots once I know what gets you excited."
+User: "budget tips" → "Smart thinking! Budget travel can actually make trips way more fun and authentic. What kind of trip are you planning? I've got different tricks depending on where you're headed."
 
-Keep it short, helpful, and friendly!`;
+Be genuinely helpful, naturally curious, and actually interested in their travel dreams!`;
   }
 
-  async generateResponse(message, userContext = {}) {
-    try {
-      if (!this.model) {
-        return {
-          success: false,
-          error: "AI features are currently unavailable. Please set up the GEMINI_API_KEY to enable AI travel assistance.",
-          timestamp: new Date().toISOString()
-        };
+  // Initialize Gemini with current API key
+  initializeGemini() {
+    const currentKey = this.apiKeys[this.currentKeyIndex];
+    if (currentKey) {
+      this.genAI = new GoogleGenerativeAI(currentKey);
+      this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      // Initialize usage count for this key if not exists
+      if (!this.keyUsageCount.has(currentKey)) {
+        this.keyUsageCount.set(currentKey, 0);
       }
 
-      // Prepare the context-aware prompt
-      const contextPrompt = this.buildContextPrompt(userContext);
-      const fullPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nUser Message: ${message}`;
+      console.log(`🔑 Using API key #${this.currentKeyIndex + 1} (usage: ${this.keyUsageCount.get(currentKey)}) - ${this.isKeyExhausted(this.currentKeyIndex) ? 'EXHAUSTED' : 'AVAILABLE'}`);
+    }
+  }
 
-      const result = await this.model.generateContent(fullPrompt);
+  // Check if a key is currently exhausted (rate limited)
+  isKeyExhausted(keyIndex) {
+    const key = this.apiKeys[keyIndex];
+    if (!this.exhaustedKeys.has(key)) return false;
+
+    // Check if enough time has passed for quota reset (24 hours)
+    const exhaustionTime = this.keyExhaustionTime.get(key);
+    if (!exhaustionTime) return false;
+
+    const now = new Date();
+    const hoursElapsed = (now - exhaustionTime) / (1000 * 60 * 60);
+
+    if (hoursElapsed >= this.quotaResetHours) {
+      // Quota should have reset, remove from exhausted list
+      this.exhaustedKeys.delete(key);
+      this.keyExhaustionTime.delete(key);
+      this.keyUsageCount.set(key, 0); // Reset usage count
+      console.log(`🔄 Key #${keyIndex + 1} quota reset after ${hoursElapsed.toFixed(1)} hours`);
+      return false;
+    }
+
+    return true;
+  }
+
+  // Get next available (non-exhausted) key index
+  getNextAvailableKeyIndex() {
+    // Clean up any expired exhaustions first
+    for (let i = 0; i < this.apiKeys.length; i++) {
+      this.isKeyExhausted(i); // This will clean up expired keys
+    }
+
+    // Find next available key starting from current position
+    for (let i = 0; i < this.apiKeys.length; i++) {
+      const nextIndex = (this.currentKeyIndex + i) % this.apiKeys.length;
+      if (!this.isKeyExhausted(nextIndex)) {
+        return nextIndex;
+      }
+    }
+
+    // All keys are exhausted
+    return -1;
+  }
+
+  // Check if we should rotate to next API key
+  shouldRotateKey() {
+    if (this.apiKeys.length <= 1) return false;
+
+    // Don't rotate if current key is exhausted (we'll handle this in callGeminiWithRotation)
+    if (this.isKeyExhausted(this.currentKeyIndex)) return false;
+
+    const currentKey = this.apiKeys[this.currentKeyIndex];
+    const usage = this.keyUsageCount.get(currentKey) || 0;
+
+    return usage >= this.maxUsagePerKey;
+  }
+
+  // Rotate to next available API key (skipping exhausted ones)
+  rotateApiKey() {
+    if (this.apiKeys.length <= 1) return false;
+
+    const nextIndex = this.getNextAvailableKeyIndex();
+
+    if (nextIndex === -1) {
+      console.error('❌ All API keys are currently exhausted');
+      return false;
+    }
+
+    if (nextIndex !== this.currentKeyIndex) {
+      this.currentKeyIndex = nextIndex;
+      console.log(`🔄 Rotating to available API key #${this.currentKeyIndex + 1}`);
+      this.initializeGemini();
+    }
+
+    return true;
+  }
+
+  // Handle quota exceeded error and try backup key
+  async handleQuotaError(originalError) {
+    const failedKeyIndex = this.currentKeyIndex;
+    const failedKey = this.apiKeys[failedKeyIndex];
+
+    console.warn(`⚠️ API quota/error with key #${failedKeyIndex + 1}:`, originalError.message);
+
+    // Mark this key as exhausted
+    this.exhaustedKeys.add(failedKey);
+    this.keyExhaustionTime.set(failedKey, new Date());
+    this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
+
+    console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted until quota resets`);
+
+    // Try to find another available key
+    const nextIndex = this.getNextAvailableKeyIndex();
+
+    if (nextIndex !== -1 && nextIndex !== failedKeyIndex) {
+      this.currentKeyIndex = nextIndex;
+      this.initializeGemini();
+      console.log(`🔄 Switched to available backup API key #${this.currentKeyIndex + 1}`);
+      return true; // Indicate we can retry
+    }
+
+    console.error('❌ All API keys are currently exhausted');
+    return false; // No more keys to try
+  }
+
+  // Wrapper for Gemini API calls with automatic rotation
+  async callGeminiWithRotation(prompt) {
+    if (!this.model) {
+      throw new Error('Gemini not initialized');
+    }
+
+    // Check if current key is exhausted and switch to available one
+    if (this.isKeyExhausted(this.currentKeyIndex)) {
+      console.log(`⚠️ Current key #${this.currentKeyIndex + 1} is exhausted, finding available key...`);
+      const availableIndex = this.getNextAvailableKeyIndex();
+
+      if (availableIndex === -1) {
+        throw new Error('All API keys are currently exhausted. Please try again later.');
+      }
+
+      if (availableIndex !== this.currentKeyIndex) {
+        this.currentKeyIndex = availableIndex;
+        this.initializeGemini();
+        console.log(`🔄 Switched to available key #${this.currentKeyIndex + 1}`);
+      }
+    }
+
+    // Check if we should rotate proactively based on usage
+    if (this.shouldRotateKey()) {
+      this.rotateApiKey();
+    }
+
+    const currentKey = this.apiKeys[this.currentKeyIndex];
+
+    try {
+      const result = await this.model.generateContent(prompt);
       const response = await result.response;
-      const text = response.text();
 
-      return {
-        success: true,
-        message: text,
-        timestamp: new Date().toISOString()
-      };
+      // Increment usage count for successful request
+      this.keyUsageCount.set(currentKey, (this.keyUsageCount.get(currentKey) || 0) + 1);
+
+      return response;
+    } catch (error) {
+      // Check if it's a quota/rate limit error
+      if (error.message.includes('429') || error.message.includes('quota') || error.message.includes('limit')) {
+        const canRetry = await this.handleQuotaError(error);
+
+        if (canRetry) {
+          // Retry with the new key (only one retry to avoid infinite loops)
+          console.log(`🔄 Retrying with backup API key #${this.currentKeyIndex + 1}...`);
+          const retryResult = await this.model.generateContent(prompt);
+          const retryResponse = await retryResult.response;
+
+          // Increment usage count for successful retry
+          const newKey = this.apiKeys[this.currentKeyIndex];
+          this.keyUsageCount.set(newKey, (this.keyUsageCount.get(newKey) || 0) + 1);
+
+          return retryResponse;
+        }
+      }
+
+      // Re-throw the error if we can't handle it
+      throw error;
+    }
+  }
+
+  async generateResponse(message, userContext = {}, socketService = null) {
+    try {
+      // Check if user is in an ongoing trip planning conversation
+      const conversationState = this.getConversationState(userContext);
+
+      if (conversationState && conversationState.stage === 'gathering_details') {
+        console.log('🤖 Continuing trip planning conversation...');
+        return this.handleTripPlanningFollowUp(message, userContext, socketService);
+      }
+
+      // First try simple pattern detection to avoid API calls when obvious
+      const simpleClassification = this.simpleIntentDetection(message, userContext);
+
+      let classification;
+      if (simpleClassification) {
+        classification = simpleClassification;
+        console.log(`🎯 Simple Detection: ${classification.intent} (confidence: ${classification.confidence})`);
+      } else {
+        // Fall back to AI-powered intent classification for complex cases
+        classification = await this.classifyUserIntent(message, userContext);
+        console.log(`🧠 AI Classification: ${classification.intent} (confidence: ${classification.confidence})`);
+      }
+
+      console.log(`🎯 Detected Intent: ${classification.intent} (confidence: ${classification.confidence})`);
+
+      // Route to appropriate agent based on AI classification
+      switch (classification.intent) {
+        case 'trip_planning_complete':
+          console.log('🚀 Complete trip planning request - triggering CrewAI multi-agent system');
+          return await this.handleTripPlanningRequest(message, userContext, socketService);
+
+        case 'trip_planning_incomplete':
+          console.log('❓ Incomplete trip planning request - starting conversation state');
+
+          // Store conversation state for follow-ups
+          this.setConversationState(userContext.userId, {
+            stage: 'gathering_details',
+            originalMessage: message,
+            classification: classification,
+            collectedInfo: {
+              destination: classification.extracted_details?.destination || null,
+              duration: classification.extracted_details?.duration || null,
+              travelers: classification.extracted_details?.travelers || []
+            },
+            timestamp: new Date().toISOString()
+          });
+
+          return await this.handleIncompleteTripRequest(classification, userContext);
+
+        case 'weather_request':
+          console.log('🌤️ Weather request - using weather agent');
+          const location = classification.extracted_details?.destination || null;
+          return await this.handleWeatherRequest(message, userContext, location);
+
+        case 'destination_recommendation':
+          console.log('🗺️ Destination recommendation request - using recommendation agent');
+          return await this.handleRecommendationsRequest(message, userContext);
+
+        case 'general_chat':
+        default:
+          console.log('💬 General chat - using conversation agent');
+          return await this.generateRegularChatResponse(message, userContext);
+      }
+
     } catch (error) {
       console.error('AI Travel Service Error:', error);
       return {
@@ -76,6 +330,1422 @@ Keep it short, helpful, and friendly!`;
         timestamp: new Date().toISOString()
       };
     }
+  }
+
+  // Simple pattern-based intent detection to avoid API calls for obvious cases
+  simpleIntentDetection(message, userContext = {}) {
+    const lowerMessage = message.toLowerCase().trim();
+
+    // Simple trip planning patterns
+    const tripPlanningPatterns = [
+      /plan\s+(?:a\s+)?(?:\d+\s*(?:day|days|week|weeks)\s+)?trip\s+to\s+([a-z\s]+)/i,
+      /(?:\d+\s*(?:day|days|week|weeks)\s+)?(?:trip|travel|visit)\s+to\s+([a-z\s]+)/i,
+      /create\s+(?:a\s+)?(?:\d+\s*(?:day|days|week|weeks)\s+)?(?:trip|itinerary)\s+(?:to\s+)?([a-z\s]+)/i,
+      /going\s+to\s+([a-z\s]+)\s+for\s+(\d+)\s*(?:day|days|week|weeks)/i
+    ];
+
+    for (const pattern of tripPlanningPatterns) {
+      const match = message.match(pattern);
+      if (match) {
+        // Extract basic trip details
+        const destination = match[1] ? match[1].trim() : null;
+        const durationMatch = message.match(/(\d+)\s*(?:day|days|week|weeks)/i);
+        const duration = durationMatch ? durationMatch[1] + ' days' : null;
+
+        console.log(`🎯 Pattern detected - Destination: ${destination}, Duration: ${duration}`);
+
+        // Check if we have enough for complete trip planning
+        if (destination && destination.length > 2 && durationMatch) {
+          return {
+            intent: 'trip_planning_complete',
+            confidence: 0.95,
+            reasoning: 'Simple pattern detection found destination and duration',
+            extracted_details: {
+              destination: destination,
+              duration: duration,
+              travelers: [],
+              completeness: 'mostly_complete'
+            }
+          };
+        } else if (destination && destination.length > 2) {
+          return {
+            intent: 'trip_planning_incomplete',
+            confidence: 0.9,
+            reasoning: 'Found destination but missing duration or details',
+            extracted_details: {
+              destination: destination,
+              duration: null,
+              travelers: [],
+              completeness: 'incomplete'
+            }
+          };
+        }
+      }
+    }
+
+    // Simple weather patterns
+    if (lowerMessage.includes('weather') && (lowerMessage.includes('in') || lowerMessage.includes('for'))) {
+      return {
+        intent: 'weather_request',
+        confidence: 0.9,
+        reasoning: 'Simple weather request pattern detected',
+        extracted_details: { completeness: 'complete' }
+      };
+    }
+
+    // Simple greetings
+    const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
+    if (greetings.some(greeting => lowerMessage.startsWith(greeting) && lowerMessage.length < 20)) {
+      return {
+        intent: 'general_chat',
+        confidence: 0.95,
+        reasoning: 'Simple greeting detected',
+        extracted_details: { completeness: 'complete' }
+      };
+    }
+
+    // Simple continuation phrases (like "just create", "go ahead", "make it")
+    const continuationPhrases = ['just create', 'create it', 'go ahead', 'make it', 'proceed', 'do it', 'continue'];
+    if (continuationPhrases.some(phrase => lowerMessage.includes(phrase))) {
+      // Check if user context has recent trip discussion
+      if (userContext.recentConversations && userContext.recentConversations.length > 0) {
+        const lastConv = userContext.recentConversations[userContext.recentConversations.length - 1];
+        if (lastConv.userMessage && lastConv.userMessage.toLowerCase().includes('trip')) {
+          return {
+            intent: 'trip_planning_incomplete',
+            confidence: 0.9,
+            reasoning: 'Continuation phrase detected with recent trip context',
+            extracted_details: {
+              destination: null,
+              duration: null,
+              travelers: [],
+              completeness: 'needs_clarification'
+            }
+          };
+        }
+      }
+    }
+
+    // If no simple patterns match, return null to use AI classification
+    return null;
+  }
+
+  // AI-powered intent classification to replace hardcoded detection
+  async classifyUserIntent(message, userContext = {}) {
+    try {
+      const classificationPrompt = `You are an AI assistant that classifies user messages into different travel-related intents.
+
+CLASSIFICATION CATEGORIES:
+1. "trip_planning_complete" - User wants complete trip planning with destination, duration, and details
+2. "trip_planning_incomplete" - User wants trip planning but missing key details (destination, duration, etc.)
+3. "weather_request" - User asking about weather information
+4. "destination_recommendation" - User wants destination suggestions or travel advice
+5. "general_chat" - General conversation, greetings, or non-travel topics
+
+USER MESSAGE: "${message}"
+
+USER CONTEXT:
+- Name: ${userContext.userProfile?.name || 'Unknown'}
+- Interests: ${userContext.userProfile?.interests?.join(', ') || 'Not specified'}
+- Travel Style: ${userContext.userProfile?.travelStyle?.join(', ') || 'Not specified'}
+- Bucket List: ${userContext.userProfile?.bucketList?.join(', ') || 'Not specified'}
+
+ANALYSIS INSTRUCTIONS:
+- Look for intent to plan a complete trip vs. asking questions
+- Consider the user's travel profile and interests
+- Detect both explicit requests ("plan a trip to Japan") and implicit ones ("I want to go somewhere")
+- Determine if request has enough details to proceed with full trip planning
+
+EXAMPLES:
+- "plan a trip to Japan for 7 days" → trip_planning_complete
+- "plan me a trip" → trip_planning_incomplete
+- "I want to go somewhere" → trip_planning_incomplete
+- "what's the weather in Miami?" → weather_request
+- "tell me about Tokyo" → destination_recommendation
+- "hi" → general_chat
+
+RESPONSE FORMAT:
+Return ONLY a JSON object:
+{
+  "intent": "trip_planning_complete|trip_planning_incomplete|weather_request|destination_recommendation|general_chat",
+  "confidence": 0.95,
+  "reasoning": "Brief explanation of classification",
+  "extracted_details": {
+    "destination": "extracted destination if mentioned",
+    "duration": "extracted duration if mentioned",
+    "travelers": ["extracted traveler names if mentioned"],
+    "completeness": "complete|incomplete|vague"
+  }
+}`;
+
+      const response = await this.callGeminiWithRotation(classificationPrompt);
+      const text = response.text();
+
+      // Clean the response to extract JSON
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const classification = JSON.parse(jsonMatch[0]);
+
+      console.log(`🧠 AI Intent Classification: "${message}" -> ${classification.intent} (confidence: ${classification.confidence})`);
+      console.log(`💭 Reasoning: ${classification.reasoning}`);
+
+      return classification;
+
+    } catch (error) {
+      console.error('❌ Error in AI intent classification:', error);
+      return {
+        intent: 'general_chat',
+        confidence: 0.5,
+        reasoning: 'Fallback due to AI classification error',
+        extracted_details: { completeness: 'unknown' }
+      };
+    }
+  }
+
+  // Handle incomplete trip requests with AI-generated follow-up questions
+  async handleIncompleteTripRequest(classification, userContext) {
+    try {
+      const userProfile = userContext.userProfile || {};
+      const extractedDetails = classification.extracted_details;
+
+      // Use AI to generate personalized follow-up questions
+      const followUpPrompt = `The user wants to plan a trip but provided incomplete information. Generate a personalized response asking for missing details.
+
+USER PROFILE:
+- Name: ${userProfile.name || 'there'}
+- Interests: ${userProfile.interests?.join(', ') || 'travel'}
+- Travel Style: ${userProfile.travelStyle?.join(', ') || 'adventure'}
+- Bucket List: ${userProfile.bucketList?.join(', ') || 'various destinations'}
+
+EXTRACTED DETAILS:
+- Destination: ${extractedDetails?.destination || 'Not mentioned'}
+- Duration: ${extractedDetails?.duration || 'Not mentioned'}
+- Travelers: ${extractedDetails?.travelers?.join(', ') || 'Not mentioned'}
+
+MISSING INFORMATION:
+${!extractedDetails?.destination ? '- Destination' : ''}
+${!extractedDetails?.duration ? '- Duration (how many days)' : ''}
+${!extractedDetails?.travelers || extractedDetails.travelers.length === 0 ? '- Travel companions' : ''}
+
+INSTRUCTIONS:
+- Create a friendly, personalized response
+- Reference their profile and interests
+- Ask for missing information naturally
+- Show excitement about planning their trip
+- Keep it conversational and engaging
+- Use their name if available
+- Reference their bucket list destinations
+
+RESPONSE FORMAT:
+Return a natural, conversational response that asks for the missing information.`;
+
+      const response = await this.callGeminiWithRotation(followUpPrompt);
+      const text = response.text();
+
+      return {
+        success: true,
+        message: text,
+        timestamp: new Date().toISOString(),
+        type: 'trip_planning_questions',
+        metadata: {
+          stage: 'gathering_details',
+          classification: classification,
+          extracted_details: extractedDetails
+        }
+      };
+
+    } catch (error) {
+      console.error('Error generating AI follow-up questions:', error);
+      return {
+        success: true,
+        message: "I'd love to help plan your trip! Could you tell me where you'd like to go and how many days you're thinking?",
+        timestamp: new Date().toISOString(),
+        type: 'trip_planning_questions'
+      };
+    }
+  }
+
+
+
+
+  // Get conversation state for a user
+  getConversationState(userContext) {
+    const userId = userContext.userId;
+    return userId ? this.conversationStates.get(userId) : null;
+  }
+
+  // Set conversation state for a user
+  setConversationState(userId, state) {
+    if (userId) {
+      this.conversationStates.set(userId, state);
+      // Auto-expire after 30 minutes
+      setTimeout(() => {
+        this.conversationStates.delete(userId);
+      }, 30 * 60 * 1000);
+    }
+  }
+
+  // Clear conversation state
+  clearConversationState(userId) {
+    if (userId) {
+      this.conversationStates.delete(userId);
+    }
+  }
+
+  // Handle follow-up responses in trip planning conversation using AI
+  async handleTripPlanningFollowUp(message, userContext, socketService = null) {
+    try {
+      const conversationState = this.getConversationState(userContext);
+      if (!conversationState) {
+        // Fallback if state is lost
+        return this.generateResponse(message, userContext, socketService);
+      }
+
+      console.log('🔗 Previous conversation state:', conversationState.collectedInfo);
+
+      // Analyze the current message to extract new information
+      const currentClassification = await this.classifyUserIntent(message, userContext);
+      console.log('📝 Current message analysis:', currentClassification.extracted_details);
+
+      // Combine all information from conversation
+      const combinedInfo = {
+        destination: currentClassification.extracted_details?.destination ||
+                    conversationState.collectedInfo?.destination ||
+                    null,
+        duration: currentClassification.extracted_details?.duration ||
+                 conversationState.collectedInfo?.duration ||
+                 null,
+        travelers: [...new Set([  // Remove duplicates using Set
+          ...(currentClassification.extracted_details?.travelers || []),
+          ...(conversationState.collectedInfo?.travelers || [])
+        ])]
+      };
+
+      // Extract duration from simple number responses like "5 days" or "4"
+      if (!combinedInfo.duration && /^\d+(\s*(day|days))?\s*$/i.test(message.trim())) {
+        const match = message.match(/(\d+)/);
+        if (match) {
+          combinedInfo.duration = `${match[1]} days`;
+        }
+      }
+
+      // Extract destination from simple responses like "italy"
+      if (!combinedInfo.destination && /^[a-zA-Z\s]+$/i.test(message.trim()) && message.trim().length > 2) {
+        const destinations = ['italy', 'japan', 'thailand', 'korea', 'iceland', 'france', 'spain', 'germany', 'usa', 'uk', 'nepal'];
+        const lowerMessage = message.toLowerCase().trim();
+        if (destinations.some(dest => lowerMessage.includes(dest))) {
+          combinedInfo.destination = message.trim();
+        }
+      }
+
+      console.log('🧩 Combined trip information:', combinedInfo);
+
+      // Check if we have enough information to proceed
+      const hasDestination = combinedInfo.destination && combinedInfo.destination.length > 0;
+      const hasDuration = combinedInfo.duration && combinedInfo.duration.length > 0;
+      const hasTravelers = combinedInfo.travelers && combinedInfo.travelers.length > 0;
+
+      // We need all 3 pieces: destination, duration, and traveler info
+      if (hasDestination && hasDuration && hasTravelers) {
+        console.log('✅ Trip request now complete! Destination:', combinedInfo.destination, 'Duration:', combinedInfo.duration, 'Travelers:', combinedInfo.travelers.length);
+
+        // Clear conversation state
+        this.clearConversationState(userContext.userId);
+
+        // Create complete trip request message
+        const completeMessage = `Plan a ${combinedInfo.duration} trip to ${combinedInfo.destination}${combinedInfo.travelers.length > 0 ? ' with ' + combinedInfo.travelers.join(' and ') : ' solo'}`;
+        console.log('🚀 Complete trip request:', completeMessage);
+
+        // Process with CrewAI directly
+        return await this.handleTripPlanningRequest(completeMessage, userContext, socketService);
+      } else {
+        // Still missing information, update state and ask follow-up
+        console.log('❓ Still missing information. Has destination:', hasDestination, 'Has duration:', hasDuration, 'Has travelers:', hasTravelers);
+
+        // Update conversation state with accumulated info
+        conversationState.collectedInfo = combinedInfo;
+        conversationState.followUpCount = (conversationState.followUpCount || 0) + 1;
+
+        // If too many follow-ups, offer to help them get started
+        if (conversationState.followUpCount >= 6) {
+          console.log('⏰ Many follow-ups, offering help to get started...');
+
+          return {
+            success: true,
+            message: `I want to create the perfect trip plan for you! 🌟 Let me help you get started with three quick questions:
+
+1️⃣ **Where would you like to go?** (Any destination that excites you)
+2️⃣ **How many days?** (Weekend getaway? Week-long adventure?)
+3️⃣ **Who's joining you?** (Solo adventure or traveling with others?)
+
+Just tell me these three things and I'll have my specialist team create an amazing personalized itinerary! ✈️`,
+            timestamp: new Date().toISOString(),
+            type: 'trip_planning_guidance',
+            metadata: {
+              stage: 'guidance_offered',
+              collected_info: combinedInfo,
+              missing: {
+                destination: !hasDestination,
+                duration: !hasDuration,
+                travelers: !hasTravelers
+              }
+            }
+          };
+        }
+
+        // Update state and ask for missing information
+        this.setConversationState(userContext.userId, conversationState);
+
+        // Generate context-aware follow-up question
+        return await this.generateContextAwareFollowUp(combinedInfo, userContext);
+      }
+    } catch (error) {
+      console.error('Error handling trip planning follow-up:', error);
+      this.clearConversationState(userContext.userId);
+      return this.generateFallbackResponse(message, userContext);
+    }
+  }
+
+  // Generate context-aware follow-up questions based on what we already know
+  async generateContextAwareFollowUp(combinedInfo, userContext) {
+    try {
+      const userProfile = userContext.userProfile || {};
+      const hasDestination = combinedInfo.destination && combinedInfo.destination.length > 0;
+      const hasDuration = combinedInfo.duration && combinedInfo.duration.length > 0;
+      const hasTravelers = combinedInfo.travelers && combinedInfo.travelers.length > 0;
+
+      let question = '';
+
+      // Count what we have
+      const infoCount = [hasDestination, hasDuration, hasTravelers].filter(Boolean).length;
+
+      if (infoCount === 2) {
+        // We have 2 out of 3, ask for the missing one
+        if (!hasDestination) {
+          question = `Awesome! ${combinedInfo.duration} ${combinedInfo.travelers.length === 1 ? 'solo' : `with ${combinedInfo.travelers.slice(1).join(' and ')}`} sounds amazing! 🌍 Where would you love to go?`;
+        } else if (!hasDuration) {
+          question = `Perfect! ${combinedInfo.destination} is an incredible choice! 🎉 How many days are you thinking for this adventure?`;
+        } else if (!hasTravelers) {
+          question = `Amazing! ${combinedInfo.destination} for ${combinedInfo.duration} sounds perfect! 🌟 Are you planning to go solo, or will you have travel companions joining you?`;
+        }
+      } else if (infoCount === 1) {
+        // We have 1 out of 3, ask for the other two
+        if (hasDestination) {
+          question = `Great choice! ${combinedInfo.destination} is amazing! ✈️ How many days are you thinking, and are you traveling solo or with others?`;
+        } else if (hasDuration) {
+          question = `Perfect! ${combinedInfo.duration} is a great length for a trip! 🗺️ Where would you like to go, and are you traveling solo or with companions?`;
+        } else if (hasTravelers) {
+          const travelType = combinedInfo.travelers.length === 1 ? 'Solo travel' : `Traveling with ${combinedInfo.travelers.slice(1).join(' and ')}`;
+          question = `${travelType} is going to be amazing! 🌟 Where would you like to go and for how many days?`;
+        }
+      } else {
+        // We have nothing, ask for all three
+        if (userProfile.bucketList && userProfile.bucketList.length > 0) {
+          const destinations = userProfile.bucketList.slice(0, 2).join(' or ');
+          question = `I'd love to help plan your perfect trip! ✨ Let me know: Where would you like to go (maybe ${destinations} from your bucket list?), how many days, and are you traveling solo or with others?`;
+        } else {
+          question = `Let's create something amazing! 🚀 I need three quick details: Where would you like to go, how many days, and are you traveling solo or with companions?`;
+        }
+      }
+
+      return {
+        success: true,
+        message: question,
+        timestamp: new Date().toISOString(),
+        type: 'trip_planning_questions',
+        metadata: {
+          stage: 'gathering_details',
+          collected_info: combinedInfo,
+          missing: {
+            destination: !hasDestination,
+            duration: !hasDuration,
+            travelers: !hasTravelers
+          }
+        }
+      };
+
+    } catch (error) {
+      console.error('Error generating context-aware follow-up:', error);
+      return {
+        success: true,
+        message: "I'd love to help plan your trip! Could you tell me where you'd like to go and how many days you're thinking?",
+        timestamp: new Date().toISOString(),
+        type: 'trip_planning_questions'
+      };
+    }
+  }
+
+  // Handle weather-specific requests
+  async handleWeatherRequest(message, userContext, location) {
+    if (!location && userContext.userProfile?.location) {
+      location = userContext.userProfile.location;
+    }
+
+    if (!location) {
+      return {
+        success: true,
+        message: "Oh, weather check! 🌤️ Which place are you curious about?",
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    try {
+      // Try to get weather data from a free weather API
+      const weatherData = await this.getWeatherData(location);
+      
+      if (weatherData) {
+        return {
+          success: true,
+          message: this.formatWeatherResponse(weatherData, location),
+          timestamp: new Date().toISOString(),
+          type: 'weather',
+          metadata: {
+            location: location,
+            weatherData: weatherData
+          }
+        };
+      }
+
+      // Fallback to AI response if weather API fails
+      if (!this.model) {
+        return {
+          success: true,
+          message: `I'd love to give you the scoop on ${location}'s weather! Right now I can't pull live weather data, but definitely check your weather app for the current conditions. Is this for a trip you're planning? I can share some general climate tips for the area!`,
+          timestamp: new Date().toISOString(),
+          type: 'chat'
+        };
+      }
+
+      const contextPrompt = this.buildContextPrompt(userContext);
+      const weatherPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nThe user is asking about weather in ${location}. Be conversational and helpful:
+1. Acknowledge their weather question naturally
+2. Since you can't access live weather data, suggest they check a weather app
+3. Share any general climate knowledge about ${location} if you know it
+4. Ask if this is for travel planning to offer more help
+5. Keep it casual and friendly
+
+User question: ${message}`;
+
+      const response = await this.callGeminiWithRotation(weatherPrompt);
+
+      return {
+        success: true,
+        message: response.text(),
+        timestamp: new Date().toISOString(),
+        type: 'weather_info'
+      };
+    } catch (error) {
+      console.error('Error handling weather request:', error);
+      return {
+        success: true,
+        message: `Ah, ${location} weather! 🌤️ I can't pull live weather data right now, but definitely check your weather app for the current conditions. Planning a trip there? I'd love to help with what to expect climate-wise!`,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+  }
+
+  // Handle travel options requests (flights, hotels)
+  async handleTravelOptionsRequest(message, userContext, agentRequest) {
+    if (!this.model) {
+      return {
+        success: true,
+        message: "I'd love to help you find travel options! Could you tell me more about what you're looking for?",
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    try {
+      const contextPrompt = this.buildContextPrompt(userContext);
+      const optionsPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nThe user is asking about ${agentRequest.searchType} for ${agentRequest.location}. Provide helpful travel advice including:
+1. General guidance on booking ${agentRequest.searchType}
+2. Tips for finding good deals
+3. Recommended booking sites or approaches
+4. Timing advice
+5. If this seems like part of trip planning, offer to help plan a complete trip
+
+User question: ${message}`;
+
+      const response = await this.callGeminiWithRotation(optionsPrompt);
+
+      return {
+        success: true,
+        message: response.text(),
+        timestamp: new Date().toISOString(),
+        type: 'travel_advice'
+      };
+    } catch (error) {
+      console.error('Error handling travel options request:', error);
+      return await this.generateRegularChatResponse(message, userContext);
+    }
+  }
+
+  // Handle recommendation requests
+  async handleRecommendationsRequest(message, userContext) {
+    if (!this.model) {
+      return {
+        success: true,
+        message: "I'd love to give you some travel recommendations! What kind of experience are you looking for?",
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    try {
+      const contextPrompt = this.buildContextPrompt(userContext);
+      const recommendationPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nThe user is asking for travel recommendations. Based on their profile, provide personalized destination suggestions that match their interests and travel style. Include:
+1. 2-3 specific destination recommendations with brief explanations
+2. Why each destination matches their profile
+3. One follow-up question to help narrow down their preferences
+4. Offer to help plan a complete trip if they're interested
+
+User question: ${message}`;
+
+      const response = await this.callGeminiWithRotation(recommendationPrompt);
+
+      return {
+        success: true,
+        message: response.text(),
+        timestamp: new Date().toISOString(),
+        type: 'recommendations'
+      };
+    } catch (error) {
+      console.error('Error handling recommendations request:', error);
+      return await this.generateRegularChatResponse(message, userContext);
+    }
+  }
+
+  // Generate regular chat response using Gemini
+  async generateRegularChatResponse(message, userContext) {
+    if (!this.model) {
+      return {
+        success: false,
+        error: "AI features are currently unavailable. Please set up the GEMINI_API_KEY to enable AI travel assistance.",
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    try {
+      const contextPrompt = this.buildContextPrompt(userContext);
+      const fullPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nUser Message: ${message}`;
+
+      const response = await this.callGeminiWithRotation(fullPrompt);
+      const text = response.text();
+
+      return {
+        success: true,
+        message: text,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    } catch (error) {
+      console.error('Error generating regular chat response:', error);
+      return {
+        success: false,
+        error: 'Sorry, I encountered an error while processing your request. Please try again!',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  // Handle complete trip planning requests using Python CrewAI system
+  async handleTripPlanningRequest(message, userContext = {}, socketService = null) {
+    try {
+      console.log('\n🚀 ===== AI TRAVEL PLANNING SYSTEM STARTED =====');
+      console.log('📨 Original message:', message);
+      console.log('👤 User context:', JSON.stringify(userContext, null, 2));
+      console.log('🕐 Timestamp:', new Date().toISOString());
+
+      // Extract trip details from message
+      const tripDetails = this.extractTripDetails(message, userContext);
+      console.log('📋 Extracted trip details:', {
+        destination: tripDetails.destination,
+        travelers: tripDetails.travelers,
+        duration: tripDetails.duration_days,
+        start_date: tripDetails.start_date,
+        budget_range: tripDetails.budget_range
+      });
+
+      // Send initial status update to frontend
+      if (socketService) {
+        const userProfile = userContext.userProfile || {};
+        const personalizedMessage = this.generatePersonalizedInitialMessage(tripDetails.destination, userProfile);
+        
+        socketService.sendStatusUpdate(userContext.userId, {
+          stage: 'initializing',
+          message: personalizedMessage,
+          progress: 10,
+          agents_status: [
+            { name: 'ProfileAnalyst', status: 'preparing', task: `🧠 Analyzing ${userProfile.name || 'your'} travel personality and preferences...` },
+            { name: 'DataScout', status: 'preparing', task: `🔍 Searching live data for ${tripDetails.destination}...` },
+            { name: 'ItineraryArchitect', status: 'preparing', task: `🎨 Designing itinerary based on ${userProfile.interests?.slice(0, 2).join(' & ') || 'your interests'}...` },
+            { name: 'ChiefTravelPlanner', status: 'preparing', task: '📋 Coordinating your complete travel experience...' }
+          ]
+        });
+      }
+
+      console.log('🚀 Launching Multi-Agent CrewAI System...');
+      console.log('⏱️  Expected completion time: 30-60 seconds');
+      console.log('🐍 Python script path:', this.pythonScriptPath);
+
+      // Call Python CrewAI system with real-time updates
+      const pythonResult = await this.callPythonCrewAI(tripDetails, socketService, userContext.userId);
+
+      if (pythonResult.success) {
+        console.log('✅ Multi-Agent Trip Planning Completed Successfully!');
+
+        // Send completion status update
+        if (socketService) {
+          socketService.sendStatusUpdate(userContext.userId, {
+            stage: 'completed',
+            message: '🎉 Your personalized travel masterpiece is ready! Time to start packing!',
+            progress: 100
+          });
+        }
+
+        console.log('🔧 About to format response. pythonResult keys:', Object.keys(pythonResult));
+        console.log('🔧 pythonResult.trip_plan exists:', !!pythonResult.trip_plan);
+
+        // Pass the entire pythonResult if trip_plan doesn't exist, or trip_plan if it does
+        const dataToFormat = pythonResult.trip_plan || pythonResult;
+        const formattedResponse = this.formatTripPlanResponse(dataToFormat);
+
+        return {
+          success: true,
+          message: formattedResponse.content || formattedResponse,
+          timestamp: new Date().toISOString(),
+          type: formattedResponse.type === 'interactive_proposal' ? 'interactive_trip_plan' : 'trip_plan',
+          metadata: {
+            destination: tripDetails.destination,
+            travelers: tripDetails.travelers,
+            duration: tripDetails.duration_days,
+            trip_type: pythonResult.trip_type,
+            agents_used: ['ChiefTravelPlanner', 'ProfileAnalyst', 'DataScout', 'ItineraryArchitect'],
+            rawData: formattedResponse.rawData || pythonResult
+          }
+        };
+      } else {
+        // Send error status update
+        if (socketService) {
+          socketService.sendStatusUpdate(userContext.userId, {
+            stage: 'fallback',
+            message: 'Switching to backup travel assistant...',
+            progress: 50
+          });
+        }
+
+        // Fallback to regular Gemini response
+        console.warn('🔄 Multi-Agent system unavailable, falling back to alternative methods:', pythonResult.error);
+        return await this.generateFallbackResponse(message, userContext);
+      }
+
+    } catch (error) {
+      console.error('❌ Trip planning error:', error);
+
+      // Send error status update
+      if (socketService) {
+        socketService.sendStatusUpdate(userContext.userId, {
+          stage: 'error',
+          message: 'Switching to backup assistant due to technical issue...',
+          progress: 0
+        });
+      }
+
+      return await this.generateFallbackResponse(message, userContext);
+    }
+  }
+
+  // Extract trip details from user message
+  extractTripDetails(message, userContext = {}) {
+    const details = {
+      destination: null,
+      travelers: [],
+      duration_days: 7,
+      start_date: null,
+      budget_range: null
+    };
+
+    // Clean message aggressively to avoid extracting companion/duration info as destination
+    let cleanMessage = message
+      .replace(/\b(?:going|traveling|trip)\s+(?:solo|alone)\b/gi, '')
+      .replace(/\b(?:with\s+(?:friends|family|me\s+and|partner|spouse)[\w\s,]*)\b/gi, '')
+      .replace(/\b(?:for\s+)?\d+\s+(?:day|days|week|weeks)\b/gi, '')
+      .replace(/\b(?:in\s+)?\d+\s+(?:day|days|week|weeks)\b/gi, '')
+      .replace(/\bsolo\b/gi, '')
+      .replace(/\balone\b/gi, '')
+      .trim();
+
+    // Extract destination using destination parsing patterns
+    const destinationPatterns = [
+      // "plan/create to [destination]" - most specific first - capture multi-word destinations
+      /(?:plan|create).*?(?:to|for)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
+      // "to [destination]" patterns - capture full city names
+      /(?:to|visit)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
+      // "trip to [destination]" patterns - capture full destination names
+      /(?:trip|travel|vacation|holiday)\s+(?:to|in)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
+      // "going to [destination]" patterns
+      /(?:going\s+to)\s+([a-zA-Z\s]+?)(?:\s*$|\s+for\s|\s+\d)/i,
+      // "[destination] [duration]" style
+      /^([a-zA-Z\s]+?)\s+\d+\s+(?:day|days|week|weeks)/i
+    ];
+
+    for (const pattern of destinationPatterns) {
+      const match = cleanMessage.match(pattern);
+      if (match && match[1] && match[1].trim().length > 2) {
+        // Further clean the destination
+        let destination = match[1].trim()
+          .replace(/\b(?:solo|alone|going|trip|plan|itinerary|with|for)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (destination.length > 2) {
+          details.destination = destination;
+          break;
+        }
+      }
+    }
+
+    // Extract duration
+    const durationMatch = message.match(/(\d+)\s*(?:day|days|week|weeks)/i);
+    if (durationMatch) {
+      const num = parseInt(durationMatch[1]);
+      const unit = durationMatch[0].toLowerCase();
+      details.duration_days = unit.includes('week') ? num * 7 : num;
+    }
+
+    // Extract travelers from context or message
+    if (userContext.currentUser) {
+      details.travelers.push(userContext.currentUser);
+    }
+
+    // Check for solo travel indicators
+    const soloIndicators = /\b(solo|alone|by myself|on my own)\b/i;
+    if (soloIndicators.test(message)) {
+      // Solo travel confirmed - already have current user
+      console.log('🎯 Solo travel detected');
+    } else {
+      // Look for group travel indicators
+      const groupIndicators = /\b(with|friends|family|partner|spouse|girlfriend|boyfriend|husband|wife|group|together)\b/i;
+
+      if (groupIndicators.test(message)) {
+        // Group travel detected, try to extract specific companions
+        const companionPatterns = [
+          /(?:me and|with)\s+([a-zA-Z\s,]+)/i,
+          /(?:friend|partner|spouse|girlfriend|boyfriend|husband|wife)\s*([a-zA-Z]+)?/i
+        ];
+
+        let foundSpecificCompanions = false;
+        for (const pattern of companionPatterns) {
+          const match = message.match(pattern);
+          if (match && match[1]) {
+            const companions = match[1].split(/[,\s]+/).filter(name =>
+              name.length > 1 && !['and', 'with', 'my', 'friends', 'family'].includes(name.toLowerCase())
+            );
+            if (companions.length > 0) {
+              details.travelers.push(...companions);
+              foundSpecificCompanions = true;
+            }
+          }
+        }
+
+        // If group travel mentioned but no specific names, mark as needing clarification
+        if (!foundSpecificCompanions) {
+          details.travelers = []; // Clear to indicate we need this info
+          console.log('🎯 Group travel detected but no specific companions mentioned');
+        }
+      }
+    }
+
+    // Don't use fallbacks - let the conversation flow handle missing info
+    if (details.travelers.length === 0 && userContext.currentUser) {
+      details.travelers = [userContext.currentUser];
+    }
+
+    return details;
+  }
+
+  // Call Python CrewAI system with real-time status updates
+  async callPythonCrewAI(tripDetails, socketService = null, userId = null) {
+    return new Promise((resolve, reject) => {
+      const args = [
+        this.pythonScriptPath,
+        '--mode', 'api',
+        '--destination', tripDetails.destination,
+        '--travelers', JSON.stringify(tripDetails.travelers),
+        '--duration', tripDetails.duration_days.toString()
+      ];
+
+      console.log('🐍 Spawning Python process with args:', args);
+      console.log('📁 Working directory:', path.dirname(this.pythonScriptPath));
+
+      // Use virtual environment Python
+      const venvPython = path.join(__dirname, '../../venv/bin/python3');
+      const pythonCmd = fs.existsSync(venvPython) ? venvPython : 'python3';
+
+      console.log('🐍 Using Python executable:', pythonCmd);
+
+      const pythonProcess = spawn(pythonCmd, args, {
+        cwd: path.dirname(this.pythonScriptPath),
+        env: {
+          ...process.env,
+          GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+          SERPAPI_API_KEY: process.env.SERPAPI_API_KEY || '5af305829c76aed0a9717b14441ce950b69651920d9c4024b74b4f642cb2db00',
+          OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY || '9cc22d1a8677ceee7ecd450b6531027b',
+          PYTHONPATH: path.dirname(this.pythonScriptPath)
+        }
+      });
+
+      console.log('🔄 Python process started with PID:', pythonProcess.pid);
+
+      let stdout = '';
+      let stderr = '';
+      let currentProgress = 20;
+
+      pythonProcess.stdout.on('data', (data) => {
+        const output = data.toString();
+        stdout += output;
+        console.log('🐍 Python STDOUT:', output.trim());
+
+        // Parse agent status updates and forward to frontend
+        if (socketService && userId) {
+          this.parseAndSendAgentUpdates(output, socketService, userId, currentProgress);
+          currentProgress = Math.min(currentProgress + 10, 90);
+        }
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        const errorOutput = data.toString();
+        stderr += errorOutput;
+        
+        // Enhanced logging for Python output
+        const cleanOutput = errorOutput.trim();
+        if (cleanOutput) {
+          console.log('🐍 Python Output:', cleanOutput);
+          
+          // Log system startup messages
+          if (cleanOutput.includes('STARTING AI TRAVEL PLANNING SYSTEM')) {
+            console.log('\n🚀 ===== PYTHON CREWAI SYSTEM STARTUP =====');
+          }
+          if (cleanOutput.includes('INITIALIZING AI AGENTS')) {
+            console.log('🤖 Initializing multi-agent system...');
+          }
+          if (cleanOutput.includes('AGENTS ARE NOW WORKING')) {
+            console.log('⚡ All agents are now active and collaborating!');
+          }
+        }
+
+        // Parse agent status from stderr (where our log messages go)
+        if (socketService && userId) {
+          this.parseAndSendAgentUpdates(errorOutput, socketService, userId, currentProgress);
+          currentProgress = Math.min(currentProgress + 5, 85);
+        }
+      });
+
+      pythonProcess.on('close', (code) => {
+        console.log('\n🏁 ===== PYTHON PROCESS COMPLETED =====');
+        console.log(`📊 Exit Code: ${code}`);
+        console.log(`📄 Final stdout length: ${stdout.length} chars`);
+        console.log(`❌ Final stderr length: ${stderr.length} chars`);
+        console.log(`⏰ Completion Time: ${new Date().toLocaleTimeString()}`);
+
+        if (code === 0) {
+          try {
+            console.log('🔄 Attempting to parse Python output...');
+            const result = JSON.parse(stdout);
+            console.log('✅ Successfully parsed Python result:', Object.keys(result));
+            console.log('🎉 Trip planning completed successfully!');
+            resolve(result);
+          } catch (error) {
+            console.error('❌ Failed to parse Python output:', error.message);
+            console.error('📄 Raw stdout:', stdout.substring(0, 500) + '...');
+            resolve({ success: false, error: 'Failed to parse trip plan' });
+          }
+        } else {
+          console.error('❌ Python process failed with code:', code);
+          console.error('📄 stderr:', stderr);
+          resolve({ success: false, error: `Python process failed with code ${code}` });
+        }
+      });
+
+      pythonProcess.on('error', (error) => {
+        console.error('❌ Failed to start Python process:', error);
+        resolve({ success: false, error: 'Failed to start trip planning system' });
+      });
+
+      // Timeout after 2 minutes
+      setTimeout(() => {
+        pythonProcess.kill();
+        resolve({ success: false, error: 'Trip planning timed out' });
+      }, 120000);
+    });
+  }
+
+  // Parse agent updates from Python output and send to frontend
+  parseAndSendAgentUpdates(output, socketService, userId, currentProgress) {
+    try {
+      const agentUpdates = {
+        ProfileAnalyst: null,
+        DataScout: null,
+        ItineraryArchitect: null,
+        ChiefTravelPlanner: null
+      };
+
+      // Enhanced logging for each agent activation
+      if (output.includes('ProfileAnalyst: Analyzing traveler preferences')) {
+        console.log('\n🧠 ===== PROFILE ANALYST AGENT ACTIVATED =====');
+        console.log('📊 Status: WORKING');
+        console.log('🎯 Task: Analyzing traveler preferences and travel style');
+        console.log('⏰ Time:', new Date().toLocaleTimeString());
+        
+        agentUpdates.ProfileAnalyst = { 
+          status: 'working', 
+          task: '🧠 Deep-diving into your travel style and preferences...' 
+        };
+        currentProgress = Math.max(currentProgress, 30);
+      }
+
+      if (output.includes('DataScout: Gathering destination-specific data')) {
+        console.log('\n🔍 ===== DATA SCOUT AGENT ACTIVATED =====');
+        console.log('📊 Status: WORKING');
+        console.log('🎯 Task: Gathering live travel data (flights, hotels, weather)');
+        console.log('⏰ Time:', new Date().toLocaleTimeString());
+        
+        agentUpdates.DataScout = { 
+          status: 'working', 
+          task: '🔍 Scouring the web for the best flights, hotels, and local gems...' 
+        };
+        currentProgress = Math.max(currentProgress, 50);
+      }
+
+      if (output.includes('ItineraryArchitect: Designing personalized itinerary')) {
+        console.log('\n🎨 ===== ITINERARY ARCHITECT AGENT ACTIVATED =====');
+        console.log('📊 Status: WORKING');
+        console.log('🎯 Task: Designing personalized day-by-day itinerary');
+        console.log('⏰ Time:', new Date().toLocaleTimeString());
+        
+        agentUpdates.ItineraryArchitect = { 
+          status: 'working', 
+          task: '🎨 Crafting your perfect day-by-day adventure...' 
+        };
+        currentProgress = Math.max(currentProgress, 70);
+      }
+
+      if (output.includes('TravelPlanner: Compiling comprehensive plan')) {
+        console.log('\n📋 ===== CHIEF TRAVEL PLANNER AGENT ACTIVATED =====');
+        console.log('📊 Status: WORKING');
+        console.log('🎯 Task: Compiling comprehensive travel plan');
+        console.log('⏰ Time:', new Date().toLocaleTimeString());
+        
+        agentUpdates.ChiefTravelPlanner = { 
+          status: 'working', 
+          task: '📋 Finalizing your complete travel masterpiece...' 
+        };
+        currentProgress = Math.max(currentProgress, 85);
+      }
+
+      // Only send update if we have new information
+      const hasActiveUpdates = Object.values(agentUpdates).some(update => update !== null);
+      if (hasActiveUpdates) {
+        console.log(`\n📡 ===== SENDING STATUS UPDATE TO FRONTEND =====`);
+        console.log(`👤 User ID: ${userId}`);
+        console.log(`📊 Progress: ${currentProgress}%`);
+        console.log(`🤖 Active Agents: ${Object.entries(agentUpdates).filter(([_, update]) => update).map(([name, _]) => name).join(', ')}`);
+        
+        const waitingMessages = {
+          ProfileAnalyst: '⏳ Waiting to analyze your travel personality...',
+          DataScout: '⏳ Waiting to search live travel data...',
+          ItineraryArchitect: '⏳ Waiting to design your dream itinerary...',
+          ChiefTravelPlanner: '⏳ Waiting to coordinate your complete plan...'
+        };
+
+        socketService.sendStatusUpdate(userId, {
+          stage: 'processing',
+          message: '🚀 My specialist team is working their magic on your personalized plan...',
+          progress: currentProgress,
+          agents_status: Object.entries(agentUpdates).map(([name, update]) => ({
+            name,
+            status: update ? update.status : 'waiting',
+            task: update ? update.task : waitingMessages[name]
+          }))
+        });
+      }
+    } catch (error) {
+      console.error('Error parsing agent updates:', error);
+    }
+  }
+
+  // Format trip plan response for frontend
+  formatTripPlanResponse(tripPlan) {
+    try {
+      console.log('🎨 Formatting trip plan response, type:', typeof tripPlan);
+      console.log('🎨 Trip plan keys:', Object.keys(tripPlan || {}));
+
+      // Handle the new structured JSON output from improved CrewAI system
+      if (typeof tripPlan === 'object' && tripPlan.conversation_stage === 'proposal') {
+        console.log('✅ Detected structured proposal response');
+
+        // Create a storytelling narrative based on the trip plan
+        const storytellingContent = this.createStorytellingNarrative(tripPlan);
+
+        return {
+          type: 'interactive_proposal',
+          content: storytellingContent,
+          rawData: tripPlan
+        };
+      }
+
+      // Handle any structured object with trip data
+      if (typeof tripPlan === 'object' && tripPlan !== null) {
+        console.log('✅ Detected structured object response');
+        
+        return {
+          type: 'interactive_proposal',
+          content: 'Your personalized trip plan is ready!',
+          rawData: tripPlan
+        };
+      }
+
+      // Handle legacy string format
+      if (typeof tripPlan === 'string') {
+        console.log('✅ Detected string response');
+        return {
+          type: 'text_plan',
+          content: tripPlan
+        };
+      }
+
+      // Fallback formatting for other object types
+      console.log('⚠️ Using fallback formatting');
+      const fallbackContent = `🌟 **Your Personalized Trip Plan** 🌟\n\n${JSON.stringify(tripPlan, null, 2)}`;
+      return {
+        type: 'text_plan',
+        content: fallbackContent
+      };
+    } catch (error) {
+      console.error('Error formatting trip plan response:', error);
+      return {
+        type: 'text_plan',
+        content: typeof tripPlan === 'string' ? tripPlan : JSON.stringify(tripPlan, null, 2)
+      };
+    }
+  }
+
+  // Fallback to regular Gemini response or Python script
+  async generateFallbackResponse(message, userContext) {
+    // First try the Python script as fallback for trip planning
+    if (message.toLowerCase().includes('trip') || message.toLowerCase().includes('plan') || message.toLowerCase().includes('travel')) {
+      try {
+        console.log('🔄 Attempting Python script fallback for trip planning...');
+        const tripDetails = this.extractTripDetails(message, userContext);
+        const pythonResult = await this.callPythonCrewAI(tripDetails, null, userContext.userId);
+        
+        if (pythonResult.success) {
+          console.log('✅ Python script fallback successful!');
+          const formattedResponse = this.formatTripPlanResponse(pythonResult);
+          
+          return {
+            success: true,
+            message: formattedResponse.content || formattedResponse,
+            timestamp: new Date().toISOString(),
+            type: formattedResponse.type === 'interactive_proposal' ? 'interactive_trip_plan' : 'trip_plan',
+            metadata: {
+              destination: tripDetails.destination,
+              travelers: tripDetails.travelers,
+              duration: tripDetails.duration_days,
+              trip_type: pythonResult.trip_type,
+              agents_used: ['ChiefTravelPlanner', 'ProfileAnalyst', 'DataScout', 'ItineraryArchitect'],
+              rawData: formattedResponse.rawData || pythonResult
+            }
+          };
+        }
+      } catch (error) {
+        console.log('⚠️ Python script fallback failed:', error.message);
+      }
+    }
+
+    // If Python script fails or it's not a trip planning request, use static fallback
+    if (!this.model) {
+      return this.getStaticFallbackResponse(message, userContext);
+    }
+
+    try {
+      const contextPrompt = this.buildContextPrompt(userContext);
+      const fullPrompt = `${this.systemPrompt}\n\n${contextPrompt}\n\nUser Message: ${message}`;
+
+      const response = await this.callGeminiWithRotation(fullPrompt);
+      const text = response.text();
+
+      return {
+        success: true,
+        message: text,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    } catch (error) {
+      console.log('⚠️ Gemini fallback also failed, using static response');
+      return this.getStaticFallbackResponse(message, userContext);
+    }
+  }
+
+  // Static fallback responses when AI services are unavailable
+  getStaticFallbackResponse(message, userContext) {
+    const lowercaseMessage = message.toLowerCase();
+
+    // Trip planning fallback
+    if (lowercaseMessage.includes('trip') || lowercaseMessage.includes('plan') || lowercaseMessage.includes('travel')) {
+      return {
+        success: true,
+        message: `Hey there! ✈️ I'd love to help you plan your trip, but I'm running into some technical limitations right now.
+
+Here are some quick travel tips while I get back up to speed:
+
+🗺️ **Popular Destinations:**
+• Tokyo, Japan - Amazing food, culture, and technology
+• Paris, France - Art, history, and romance
+• Bali, Indonesia - Beautiful beaches and spiritual experiences
+• Iceland - Stunning landscapes and northern lights
+
+💰 **Budget Tips:**
+• Book flights 2-3 weeks in advance
+• Consider shoulder seasons for better prices
+• Use price comparison websites
+• Look into local public transportation
+
+📋 **General Packing:**
+• Comfortable walking shoes
+• Universal power adapter
+• Weather-appropriate clothing
+• Copy of important documents
+
+Please try asking me again in a few minutes, and I'll be able to give you a personalized itinerary! 🌟`,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    // Weather fallback
+    if (lowercaseMessage.includes('weather')) {
+      return {
+        success: true,
+        message: `🌤️ I'd love to check the weather for you, but I'm having some technical difficulties right now.
+
+For the most up-to-date weather information, I recommend:
+• Weather.com
+• AccuWeather
+• Your phone's built-in weather app
+
+I'll be back to full functionality soon! Feel free to ask me about travel tips or destinations in the meantime. 😊`,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    // General greeting fallback
+    if (lowercaseMessage.includes('hi') || lowercaseMessage.includes('hello') || lowercaseMessage.includes('hey')) {
+      return {
+        success: true,
+        message: `Hey there! 👋 I'm WanderBuddy, your AI travel companion!
+
+I'm experiencing some technical difficulties right now, but I'm still here to help with basic travel advice. You can ask me about:
+
+🗺️ General destination recommendations
+💰 Budget travel tips
+📋 Packing suggestions
+🏨 Accommodation advice
+🍴 Food and dining tips
+
+For detailed trip planning, please try again in a few minutes when I'm back to full power! ✨`,
+        timestamp: new Date().toISOString(),
+        type: 'chat'
+      };
+    }
+
+    // Default fallback
+    return {
+      success: true,
+      message: `I'm sorry, but I'm experiencing some technical difficulties right now and can't provide my usual detailed assistance. 🔧
+
+I should be back to full functionality soon! In the meantime, feel free to:
+• Browse travel inspiration online
+• Check out travel blogs and forums
+• Research your destination of interest
+
+Thanks for your patience, and please try asking me again in a few minutes! 😊`,
+      timestamp: new Date().toISOString(),
+      type: 'chat'
+    };
+  }
+
+  // Get weather data from OpenWeatherMap API
+  async getWeatherData(location) {
+    try {
+      const apiKey = process.env.OPENWEATHER_API_KEY;
+      if (!apiKey) {
+        console.log('⚠️ No OpenWeather API key found, skipping weather data');
+        return null;
+      }
+
+      const response = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(location)}&appid=${apiKey}&units=metric`
+      );
+      
+      if (!response.ok) {
+        console.log(`⚠️ Weather API error: ${response.status}`);
+        return null;
+      }
+
+      const data = await response.json();
+      return {
+        temperature: Math.round(data.main.temp),
+        description: data.weather[0].description,
+        humidity: data.main.humidity,
+        windSpeed: data.wind.speed,
+        country: data.sys.country,
+        city: data.name
+      };
+    } catch (error) {
+      console.log('⚠️ Weather API error:', error.message);
+      return null;
+    }
+  }
+
+  // Format weather response
+  formatWeatherResponse(weatherData, location) {
+    const { temperature, description, humidity, windSpeed, city, country } = weatherData;
+    
+    return `🌤️ **Current Weather in ${city}, ${country}**
+
+🌡️ **Temperature:** ${temperature}°C
+☁️ **Conditions:** ${description.charAt(0).toUpperCase() + description.slice(1)}
+💧 **Humidity:** ${humidity}%
+💨 **Wind:** ${windSpeed} m/s
+
+Perfect weather for exploring! ${temperature > 25 ? '☀️ Great for outdoor activities!' : temperature < 15 ? '🧥 You might want a light jacket!' : '🌤️ Comfortable weather for sightseeing!'}
+
+Is this for a trip you're planning? I can help you plan the perfect itinerary! ✈️`;
+  }
+
+  // Create storytelling narrative for trip plan
+  createStorytellingNarrative(tripPlan) {
+    const destination = tripPlan.trip_summary?.destination || 'your destination';
+    const duration = tripPlan.trip_summary?.duration || '7';
+    const budget = tripPlan.trip_summary?.estimated_budget || 'your budget';
+    
+    let narrative = `🌟 **Your ${destination} Adventure Story** 🌟\n\n`;
+    
+    // Opening story
+    narrative += `${tripPlan.welcome_message || `Imagine stepping off the plane in ${destination}, the adventure of a lifetime about to unfold...`}\n\n`;
+    
+    // Why this plan is perfect for them
+    narrative += `**🎯 Why This Plan is Perfect for You:**\n`;
+    narrative += `I've carefully crafted this ${duration}-day journey specifically for your travel style and interests. `;
+    
+    if (tripPlan.personalization_reasoning) {
+      narrative += `${tripPlan.personalization_reasoning}\n\n`;
+    } else {
+      narrative += `Every detail has been chosen to create unforgettable memories that align with what makes you tick as a traveler.\n\n`;
+    }
+    
+    // Trip highlights with storytelling
+    narrative += `**✨ Your Journey Highlights:**\n`;
+    if (tripPlan.itinerary_narrative?.key_experiences) {
+      tripPlan.itinerary_narrative.key_experiences.forEach((exp, index) => {
+        narrative += `${index + 1}. **${exp.title}** - ${exp.description}\n`;
+      });
+    } else if (tripPlan.itinerary_narrative?.overview) {
+      narrative += `${tripPlan.itinerary_narrative.overview}\n`;
+    }
+    narrative += `\n`;
+    
+    // Weather and timing reasoning
+    if (tripPlan.weather_and_packing?.current_conditions) {
+      narrative += `**🌤️ Perfect Timing:**\n`;
+      narrative += `${tripPlan.weather_and_packing.current_conditions} `;
+      narrative += `This is actually ideal timing for your trip - the weather will enhance every experience I've planned for you.\n\n`;
+    }
+    
+    // Flight options with reasoning
+    if (tripPlan.interactive_cards?.flight_options) {
+      narrative += `**✈️ Smart Flight Choices:**\n`;
+      narrative += `I've found several excellent flight options that balance cost, comfort, and convenience:\n\n`;
+      tripPlan.interactive_cards.flight_options.forEach((flight, index) => {
+        narrative += `**Option ${index + 1}:** ${flight.airline} - ${flight.price}\n`;
+        narrative += `${flight.duration} | ${flight.type}\n`;
+        if (flight.reasoning) {
+          narrative += `*${flight.reasoning}*\n`;
+        }
+        narrative += `\n`;
+      });
+    }
+    
+    // Hotel options with reasoning
+    if (tripPlan.interactive_cards?.accommodation_options) {
+      narrative += `**🏨 Handpicked Accommodations:**\n`;
+      narrative += `Each of these hotels has been chosen for a specific reason:\n\n`;
+      tripPlan.interactive_cards.accommodation_options.forEach((hotel, index) => {
+        narrative += `**Option ${index + 1}:** ${hotel.name} - ${hotel.price}\n`;
+        narrative += `${hotel.location} | ${hotel.rating}\n`;
+        if (hotel.reasoning) {
+          narrative += `*${hotel.reasoning}*\n`;
+        } else if (hotel.highlights) {
+          narrative += `*Perfect for: ${hotel.highlights}*\n`;
+        }
+        narrative += `\n`;
+      });
+    }
+    
+    // Budget breakdown with transparency
+    if (tripPlan.budget_breakdown) {
+      narrative += `**💰 Budget Transparency:**\n`;
+      narrative += `Here's exactly how your ${budget} will create maximum value:\n`;
+      Object.entries(tripPlan.budget_breakdown).forEach(([category, amount]) => {
+        narrative += `• ${category}: ${amount}\n`;
+      });
+      narrative += `\n`;
+    }
+    
+    // Next steps with excitement
+    narrative += `**🚀 Ready to Make This Real?**\n`;
+    if (tripPlan.next_steps?.booking_priority) {
+      narrative += `${tripPlan.next_steps.booking_priority}\n\n`;
+    } else {
+      narrative += `Choose your preferred flight and hotel options above, and I'll help you turn this dream into reality!\n\n`;
+    }
+    
+    // Credits with personality
+    if (tripPlan.agent_credits) {
+      narrative += `*Crafted with care by your specialist team: ${Object.values(tripPlan.agent_credits).join(', ')}* 🤖✨`;
+    }
+    
+    return narrative;
+  }
+
+  // Generate personalized initial message based on user profile
+  generatePersonalizedInitialMessage(destination, userProfile) {
+    const name = userProfile.name ? `, ${userProfile.name}` : '';
+    const interests = userProfile.interests || [];
+    const travelStyle = userProfile.travelStyle || [];
+    
+    let message = `🌟 Amazing choice${name}! ${destination} is calling your name!`;
+    
+    if (interests.length > 0) {
+      const topInterests = interests.slice(0, 2).join(' and ');
+      message += ` I can already see some perfect ${topInterests} experiences waiting for you.`;
+    }
+    
+    if (travelStyle.length > 0) {
+      const style = Array.isArray(travelStyle) ? travelStyle[0] : travelStyle;
+      message += ` Given your ${style.toLowerCase()} travel style, this is going to be incredible!`;
+    }
+    
+    message += ` Let me rally my specialist team to craft your perfect adventure.`;
+    
+    return message;
   }
 
   buildContextPrompt(userContext) {
@@ -88,7 +1758,10 @@ Keep it short, helpful, and friendly!`;
       if (profile.name) contextParts.push(`- Name: ${profile.name}`);
       if (profile.age) contextParts.push(`- Age: ${profile.age}`);
       if (profile.location) contextParts.push(`- Location: ${profile.location}`);
-      if (profile.travelStyle) contextParts.push(`- Travel Style: ${profile.travelStyle}`);
+      if (profile.travelStyle) {
+        const styles = Array.isArray(profile.travelStyle) ? profile.travelStyle : [profile.travelStyle];
+        contextParts.push(`- Travel Style: ${styles.join(', ')}`);
+      }
       if (profile.interests && profile.interests.length > 0) {
         contextParts.push(`- Interests: ${profile.interests.join(', ')}`);
       }
@@ -100,6 +1773,19 @@ Keep it short, helpful, and friendly!`;
       }
       if (profile.preferredBudget) {
         contextParts.push(`- Preferred Budget: ${profile.preferredBudget}`);
+      }
+
+      // Add intelligent conversation starters based on profile
+      contextParts.push(`\nPERSONALIZATION NOTES:`);
+      if (profile.interests && profile.interests.length > 0) {
+        contextParts.push(`- Connect travel suggestions to their interests: ${profile.interests.slice(0, 3).join(', ')}`);
+      }
+      if (profile.bucketList && profile.bucketList.length > 0) {
+        contextParts.push(`- Reference or build on bucket list: ${profile.bucketList.slice(0, 3).join(', ')}`);
+      }
+      if (profile.travelStyle) {
+        const styles = Array.isArray(profile.travelStyle) ? profile.travelStyle : [profile.travelStyle];
+        contextParts.push(`- Tailor recommendations for ${styles.join(' and ')} travel style`);
       }
     }
 
