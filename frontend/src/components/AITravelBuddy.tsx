@@ -106,17 +106,17 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className={cn(
           'flex w-full mb-4',
-          message.type === 'trip_plan' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
+          message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
         )}
       >
         <div
           className={cn(
-            message.type === 'trip_plan' ? 'w-full' : 'max-w-[85%]',
+            message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'w-full' : 'max-w-[85%]',
             'rounded-2xl px-3 py-2 text-sm leading-relaxed',
             'shadow-sm',
             isUser
               ? 'bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-white ml-4 shadow-lg'
-              : message.type === 'trip_plan'
+              : message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback'
                 ? 'bg-transparent border-none mr-0 px-0 py-0'
                 : 'bg-gradient-to-br from-gray-50 to-white text-gray-800 border border-gray-200 mr-4 shadow-md hover:shadow-lg',
             'transition-all duration-200'
@@ -131,7 +131,7 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
               </div>
               <span className="text-gray-500 ml-2">WanderBuddy is typing...</span>
             </div>
-          ) : (message.type === 'trip_plan' || message.type === 'interactive_trip_plan') ? (
+          ) : (message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback') ? (
             <TripPlanDisplay
               content={message.content}
               metadata={{

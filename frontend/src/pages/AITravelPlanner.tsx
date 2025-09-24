@@ -95,6 +95,7 @@ const AITravelPlanner: React.FC = () => {
     sendMessage,
     clearConversation,
     clearError,
+    addMessage,
   } = useAITravelBuddy(enhancedUserContext);
 
   // Auto-scroll to bottom when new messages arrive - with delay to prevent jumping
@@ -256,8 +257,32 @@ const AITravelPlanner: React.FC = () => {
             agentsStatus: data.agents || []
           });
 
-          // Hide status after completion
-          if (data.stage === 'completed') {
+          // If this is a completed trip plan, add it as a permanent message
+          if (data.stage === 'completed' && data.metadata?.type === 'trip_plan_with_feedback') {
+            const tripPlanMessage = {
+              id: `trip_plan_${Date.now()}`,
+              role: 'assistant',
+              content: data.message,
+              timestamp: new Date().toISOString(),
+              type: 'trip_plan_with_feedback',
+              metadata: {
+                ...data.metadata,
+                destination: data.metadata?.tripDetails?.destination || 'Your Destination',
+                duration: data.metadata?.tripDetails?.duration || '7 days',
+                travelers: data.metadata?.tripDetails?.travelers || ['Traveler'],
+                userProfile: enhancedUserContext?.userProfile
+              }
+            };
+            
+            // Add the trip plan to the chat messages
+            addMessage(tripPlanMessage);
+            
+            // Hide status after a short delay
+            setTimeout(() => {
+              setAgentStatus(prev => ({ ...prev, isVisible: false }));
+            }, 2000);
+          } else if (data.stage === 'completed') {
+            // Hide status after completion for other types
             setTimeout(() => {
               setAgentStatus(prev => ({ ...prev, isVisible: false }));
             }, 3000);
@@ -347,17 +372,17 @@ const AITravelPlanner: React.FC = () => {
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className={cn(
           'flex w-full mb-6',
-          message.type === 'trip_plan' || message.type === 'interactive_trip_plan' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
+          message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
         )}
       >
         <div
           className={cn(
-            message.type === 'trip_plan' || message.type === 'interactive_trip_plan' ? 'w-full max-w-6xl' : 'max-w-2xl',
+            message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback' ? 'w-full max-w-6xl' : 'max-w-2xl',
             'rounded-2xl px-6 py-4 text-sm leading-relaxed',
             'shadow-soft',
             isUser
               ? 'bg-gradient-sunrise text-white ml-4'
-              : message.type === 'trip_plan' || message.type === 'interactive_trip_plan'
+              : message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback'
                 ? 'bg-transparent border-none mr-0 px-0 py-0'
                 : 'bg-card text-foreground border border-border/50 mr-4',
             'transition-all duration-200'
@@ -372,7 +397,7 @@ const AITravelPlanner: React.FC = () => {
               </div>
               <span className="text-muted-foreground ml-2">WanderBuddy is crafting your perfect trip...</span>
             </div>
-          ) : message.type === 'trip_plan' || message.type === 'interactive_trip_plan' ? (
+          ) : message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback' ? (
             <TripPlanDisplay
               content={message.content}
               metadata={{

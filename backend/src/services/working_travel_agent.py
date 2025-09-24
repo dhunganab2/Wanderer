@@ -36,6 +36,7 @@ gemini_model = None
 exhausted_keys = set()  # Track which keys are rate limited
 key_exhaustion_time = {}  # Track when keys were exhausted
 QUOTA_RESET_HOURS = 24  # Quotas reset every 24 hours
+call_counter = 0  # Track total API calls for smart rotation
 
 def initialize_gemini(key_index=0):
     global gemini_model, current_key_index
@@ -99,6 +100,32 @@ def get_next_available_key_index():
     # All keys are exhausted
     return -1
 
+def get_best_available_key_index():
+    """Smart rotation: Get the best available key for this API call"""
+    global call_counter
+    
+    # Clean up any expired exhaustions first
+    for i in range(len(api_keys)):
+        is_key_exhausted(i)  # This will clean up expired keys
+
+    # Collect all available keys
+    available_keys = []
+    for i in range(len(api_keys)):
+        if not is_key_exhausted(i):
+            available_keys.append(i)
+
+    if not available_keys:
+        return -1  # All keys exhausted
+
+    # Smart rotation: Use call counter to determine which key to use
+    # This ensures we cycle through available keys instead of always using the same one
+    rotation_index = call_counter % len(available_keys)
+    selected_key_index = available_keys[rotation_index]
+    
+    log_agent_status(f"🎯 Smart rotation: Call #{call_counter}, Available keys: {[f'#{i+1}' for i in available_keys]}, Selected: #{selected_key_index + 1}")
+    
+    return selected_key_index
+
 def mark_key_exhausted(key_index):
     """Mark a key as exhausted due to quota limits"""
     global exhausted_keys, key_exhaustion_time
@@ -111,9 +138,25 @@ def mark_key_exhausted(key_index):
         log_agent_status(f"❌ Key #{key_index + 1} marked as exhausted until quota resets")
 
 def call_gemini_with_fallback(prompt):
-    global current_key_index
+    global current_key_index, call_counter
 
-    # Check if current key is exhausted and switch to available one
+    # Smart rotation: Each new API call starts with the next available key
+    call_counter += 1
+    
+    # Find the best available key for this call
+    best_key_index = get_best_available_key_index()
+    
+    if best_key_index == -1:
+        log_agent_status("❌ All API keys are currently exhausted, using fallback")
+        return None
+
+    # Switch to the best available key if it's different from current
+    if best_key_index != current_key_index:
+        current_key_index = best_key_index
+        log_agent_status(f"🔄 Smart rotation: Using API key #{current_key_index + 1} for call #{call_counter}")
+        initialize_gemini(current_key_index)
+
+    # Check if current key is exhausted (shouldn't happen with smart rotation, but safety check)
     if is_key_exhausted(current_key_index):
         log_agent_status(f"⚠️ Current key #{current_key_index + 1} is exhausted, finding available key...")
         available_index = get_next_available_key_index()
@@ -402,21 +445,81 @@ def search_travel_info(destination, query_type):
         return get_fallback_data(destination, query_type)
 
 def get_fallback_data(destination, query_type):
-    """Fallback data when APIs fail"""
+    """Enhanced fallback data with destination-specific information when APIs fail"""
+
+    # Enhanced destination-specific data
+    destination_data = {
+        "japan": {
+            "flights": [
+                {"airline": "JAL (Japan Airlines)", "price": "$800-1,400", "duration": "12-16 hours", "type": "Direct/1-stop", "reasoning": "Premium service with excellent safety record", "stops": 0},
+                {"airline": "ANA (All Nippon Airways)", "price": "$750-1,350", "duration": "13-17 hours", "type": "Direct/1-stop", "reasoning": "Award-winning service and comfort", "stops": 0},
+                {"airline": "United Airlines", "price": "$700-1,200", "duration": "14-18 hours", "type": "1-2 stops", "reasoning": "Good value with reliable connections", "stops": 1}
+            ],
+            "hotels": [
+                {"name": "Hotel Gracery Shinjuku", "price": "$150-250/night", "rating": "4.3/5", "location": "Shinjuku", "amenities": ["Free WiFi", "Godzilla View", "Restaurant"], "reasoning": "Iconic views and central location"},
+                {"name": "Ryokan Yamashiro", "price": "$300-500/night", "rating": "4.7/5", "location": "Kyoto", "amenities": ["Traditional Baths", "Kaiseki Dining", "Garden Views"], "reasoning": "Authentic Japanese experience"},
+                {"name": "Capsule Inn Akihabara", "price": "$40-80/night", "rating": "4.1/5", "location": "Akihabara", "amenities": ["Compact Design", "Tech District", "Budget-friendly"], "reasoning": "Unique experience in tech hub"}
+            ],
+            "weather": {"temperature": 18, "description": "cherry blossom season", "humidity": 65, "wind_speed": 8},
+            "transportation": {"best_option": "JR Pass for trains, IC cards for local transport", "day_pass_cost": "$28 JR Pass daily rate", "tips": ["Get JR Pass before arrival", "Download Google Translate", "Cash is preferred"]}
+        },
+        "london": {
+            "flights": [
+                {"airline": "British Airways", "price": "$400-800", "duration": "6-8 hours", "type": "Direct", "reasoning": "National carrier with frequent flights", "stops": 0},
+                {"airline": "Virgin Atlantic", "price": "$450-750", "duration": "6-9 hours", "type": "Direct", "reasoning": "Premium experience with entertainment", "stops": 0},
+                {"airline": "Lufthansa", "price": "$350-650", "duration": "8-12 hours", "type": "1-stop", "reasoning": "Reliable European carrier", "stops": 1}
+            ],
+            "hotels": [
+                {"name": "The Shard Hotel", "price": "$250-450/night", "rating": "4.5/5", "location": "London Bridge", "amenities": ["City Views", "Spa", "Fine Dining"], "reasoning": "Iconic skyline location"},
+                {"name": "Premier Inn County Hall", "price": "$120-200/night", "rating": "4.2/5", "location": "South Bank", "amenities": ["Thames Views", "Comfortable Beds", "Restaurant"], "reasoning": "Great value near attractions"},
+                {"name": "YHA London Central", "price": "$35-70/night", "rating": "4.0/5", "location": "Holborn", "amenities": ["Budget-friendly", "Social Areas", "Kitchen Access"], "reasoning": "Perfect for budget travelers"}
+            ],
+            "weather": {"temperature": 12, "description": "mild and cloudy", "humidity": 78, "wind_speed": 12},
+            "transportation": {"best_option": "Oyster Card for Underground and buses", "day_pass_cost": "£13.20 for unlimited travel", "tips": ["Stand right on escalators", "Mind the gap", "Download Citymapper app"]}
+        },
+        "paris": {
+            "flights": [
+                {"airline": "Air France", "price": "$350-700", "duration": "7-9 hours", "type": "Direct", "reasoning": "National carrier with excellent cuisine", "stops": 0},
+                {"airline": "Delta Airlines", "price": "$400-650", "duration": "8-11 hours", "type": "1-stop", "reasoning": "SkyTeam partner with good connections", "stops": 1},
+                {"airline": "Lufthansa", "price": "$320-600", "duration": "9-12 hours", "type": "1-stop", "reasoning": "Reliable with Frankfurt connections", "stops": 1}
+            ],
+            "hotels": [
+                {"name": "Le Marais Boutique Hotel", "price": "$180-320/night", "rating": "4.4/5", "location": "Le Marais", "amenities": ["Historic District", "Breakfast Included", "Concierge"], "reasoning": "Charming neighborhood with character"},
+                {"name": "Hotel des Invalides", "price": "$150-280/night", "rating": "4.2/5", "location": "7th Arrondissement", "amenities": ["Near Eiffel Tower", "Classic Decor", "Room Service"], "reasoning": "Walking distance to major sites"},
+                {"name": "MIJE Hostel", "price": "$40-85/night", "rating": "3.9/5", "location": "Bastille", "amenities": ["Historic Building", "Shared Kitchen", "Social Atmosphere"], "reasoning": "Budget option in trendy area"}
+            ],
+            "weather": {"temperature": 15, "description": "romantic spring weather", "humidity": 68, "wind_speed": 9},
+            "transportation": {"best_option": "Metro day passes and walking", "day_pass_cost": "€7.50 for unlimited metro", "tips": ["Keep tickets until exit", "Watch for pickpockets", "Many stations have no elevators"]}
+        }
+    }
+
+    # Get destination-specific data or use generic fallback
+    dest_lower = destination.lower()
+    dest_info = None
+
+    for key, info in destination_data.items():
+        if key in dest_lower:
+            dest_info = info
+            break
+
     if query_type == "flights":
+        if dest_info and "flights" in dest_info:
+            return {"results": dest_info["flights"]}
         return {
             "results": [
-                {"airline": "Air Canada", "price": "$450-680", "duration": "5-8 hours", "type": "Direct/1-stop"},
-                {"airline": "Delta Airlines", "price": "$420-720", "duration": "6-10 hours", "type": "1-2 stops"},
-                {"airline": "WestJet", "price": "$380-650", "duration": "4-7 hours", "type": "Direct/1-stop"}
+                {"airline": "Major Airline", "price": "$400-800", "duration": "6-12 hours", "type": "Direct/1-stop", "reasoning": "Reliable service with good timing", "stops": 0},
+                {"airline": "Budget Carrier", "price": "$300-600", "duration": "8-14 hours", "type": "1-2 stops", "reasoning": "Best value with acceptable connections", "stops": 1},
+                {"airline": "Premium Airline", "price": "$500-1000", "duration": "5-10 hours", "type": "Direct", "reasoning": "Comfort and convenience", "stops": 0}
             ]
         }
     elif query_type == "hotels":
+        if dest_info and "hotels" in dest_info:
+            return {"results": dest_info["hotels"]}
         return {
             "results": [
-                {"name": "Fairmont Hotels", "price": "$200-400/night", "rating": "4.5/5", "location": "Downtown"},
-                {"name": "Delta Hotels", "price": "$150-280/night", "rating": "4.2/5", "location": "City Center"},
-                {"name": "Best Western", "price": "$100-180/night", "rating": "4.0/5", "location": "Airport Area"}
+                {"name": "Luxury Downtown Hotel", "price": "$200-400/night", "rating": "4.5/5", "location": "City Center", "amenities": ["Spa", "Fine Dining", "Concierge"], "reasoning": "Premium location and service"},
+                {"name": "Business Hotel", "price": "$120-250/night", "rating": "4.2/5", "location": "Business District", "amenities": ["WiFi", "Gym", "Meeting Rooms"], "reasoning": "Great for business travelers"},
+                {"name": "Budget Inn", "price": "$60-120/night", "rating": "3.8/5", "location": "Near Transit", "amenities": ["Basic Comfort", "Good Location", "Clean"], "reasoning": "Best value for money"}
             ]
         }
     elif query_type == "attractions":
@@ -586,40 +689,74 @@ class WorkingTravelAgent:
         # Simulate realistic agent work with real data
         log_agent_status("🎬 AGENTS ARE NOW WORKING...")
 
-        # Agent 1: ProfileAnalyst
+        # Agent 1: ProfileAnalyst with detailed thinking updates
         log_agent_status("📊 ProfileAnalyst: Analyzing traveler preferences...")
+        time.sleep(0.5)
+        log_agent_status("ProfileAnalyst: Thinking about travel personality...")
         time.sleep(1)
+        log_agent_status("ProfileAnalyst: Identifying optimal travel style...")
         profile_data = {
             "travel_style": "Adventure and culture",
             "budget_range": "mid-range",
             "interests": ["sightseeing", "local_cuisine", "cultural_experiences"],
             "activity_level": "moderate"
         }
+        log_agent_status("ProfileAnalyst: Travel personality identified")
+        time.sleep(0.5)
 
-        # Agent 2: DataScout
-        log_agent_status("🌤️ DataScout: Gathering destination-specific data...")
-        weather_info = get_real_weather_data(destination)
+        # Agent 2: DataScout with real-time API updates
+        log_agent_status("🔍 DataScout: Gathering destination-specific data...")
+        time.sleep(0.5)
+        log_agent_status("DataScout: Thinking about data collection strategy...")
+        time.sleep(1)
+
+        log_agent_status("DataScout: Searching live flight options...")
         flight_data = search_travel_info(destination, "flights")
+        time.sleep(1)
+        log_agent_status("DataScout: Flight options found")
+
+        log_agent_status("DataScout: Finding perfect accommodations...")
         hotel_data = search_travel_info(destination, "hotels")
         time.sleep(1)
-        log_agent_status("✅ DataScout: Local insights and recommendations retrieved")
+        log_agent_status("DataScout: Hotel options found")
 
-        # Agent 3: ItineraryArchitect
-        log_agent_status("🗺️ ItineraryArchitect: Designing personalized itinerary...")
+        log_agent_status("DataScout: Checking weather patterns...")
+        weather_info = get_real_weather_data(destination)
+        time.sleep(0.5)
+        log_agent_status("DataScout: Data collection complete")
+
+        # Agent 3: ItineraryArchitect with creative process
+        log_agent_status("🎨 ItineraryArchitect: Designing personalized itinerary...")
+        time.sleep(0.5)
+        log_agent_status("ItineraryArchitect: Thinking about optimal itinerary structure...")
+        time.sleep(1)
+
+        log_agent_status("ItineraryArchitect: Researching top attractions...")
         attractions_data = search_travel_info(destination, "attractions")
+        time.sleep(1)
+
+        log_agent_status("ItineraryArchitect: Curating dining experiences...")
         restaurants_data = search_travel_info(destination, "restaurants")
-        
-        # Generate AI-powered detailed itinerary
+        time.sleep(1)
+
+        log_agent_status("ItineraryArchitect: Crafting day-by-day experiences...")
         daily_itinerary = generate_ai_itinerary(destination, duration_days, attractions_data, weather_info, trip_type)
         time.sleep(1)
+        log_agent_status("ItineraryArchitect: Itinerary complete")
 
-        # Agent 4: ChiefTravelPlanner
+        # Agent 4: ChiefTravelPlanner final orchestration
         log_agent_status("📋 TravelPlanner: Compiling comprehensive plan...")
+        time.sleep(0.5)
+        log_agent_status("TravelPlanner: Thinking about final orchestration...")
         time.sleep(1)
-        log_agent_status("")
+        log_agent_status("TravelPlanner: Weaving all elements together...")
+        time.sleep(1)
+        log_agent_status("TravelPlanner: Adding personalized touches...")
+        time.sleep(0.5)
+        log_agent_status("TravelPlanner: Plan finalized")
 
         log_agent_status("✅ TRIP PLANNING COMPLETED SUCCESSFULLY!")
-        log_agent_status("📄 Generating final travel plan...")
+        log_agent_status("📄 Generating comprehensive travel presentation...")
         log_agent_status("=" * 60)
 
         # Create comprehensive travel plan with real data

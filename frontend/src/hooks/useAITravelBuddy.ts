@@ -201,7 +201,7 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
 
-      await aiTravelService.clearConversation();
+      await aiTravelService.clearConversation(userContext);
       aiTravelService.clearStoredMessages();
 
       setState(prev => ({

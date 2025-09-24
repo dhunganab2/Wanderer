@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "name": "ai-agents",
+  "version": "2.0.0",
+  "description": "Multi-agent AI system for travel planning"
+}

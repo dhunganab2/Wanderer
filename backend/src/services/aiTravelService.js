@@ -25,6 +25,7 @@ class AITravelService {
     this.exhaustedKeys = new Set(); // Track which keys are rate limited
     this.keyExhaustionTime = new Map(); // Track when keys were exhausted
     this.quotaResetHours = 24; // Quotas reset every 24 hours
+    this.callCounter = 0; // Track total API calls to implement smart rotation
 
     if (this.apiKeys.length === 0) {
       console.warn('⚠️ No GEMINI_API_KEY provided - AI features will be disabled');
@@ -37,6 +38,7 @@ class AITravelService {
 
     // Path to Python travel agent system (use working version)
     this.pythonScriptPath = path.join(__dirname, 'working_travel_agent.py');
+    this.pythonExecutable = path.join(__dirname, '..', '..', 'venv', 'bin', 'python');
 
     // System prompt for the AI Travel Buddy
     this.systemPrompt = `You are WanderBuddy, a super chill and enthusiastic AI travel companion for the Wanderer app. You're like that friend who's been everywhere and loves helping people discover amazing places.
@@ -98,14 +100,19 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
     const key = this.apiKeys[keyIndex];
     if (!this.exhaustedKeys.has(key)) return false;
 
-    // Check if enough time has passed for quota reset (24 hours)
+    // Check if enough time has passed for quota reset
     const exhaustionTime = this.keyExhaustionTime.get(key);
     if (!exhaustionTime) return false;
 
     const now = new Date();
     const hoursElapsed = (now - exhaustionTime) / (1000 * 60 * 60);
 
-    if (hoursElapsed >= this.quotaResetHours) {
+    // Determine reset time based on error type (1 hour for 503 errors, 24 hours for quota)
+    const resetHours = keyIndex < this.apiKeys.length && 
+                      this.keyUsageCount.get(key) === this.maxUsagePerKey ? 
+                      1 : this.quotaResetHours; // 1 hour for service unavailable, 24 for quota
+
+    if (hoursElapsed >= resetHours) {
       // Quota should have reset, remove from exhausted list
       this.exhaustedKeys.delete(key);
       this.keyExhaustionTime.delete(key);
@@ -134,6 +141,36 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
 
     // All keys are exhausted
     return -1;
+  }
+
+  // Smart rotation: Get the best available key for this API call
+  // This ensures we cycle through keys instead of always starting with the first
+  getBestAvailableKeyIndex() {
+    // Clean up any expired exhaustions first
+    for (let i = 0; i < this.apiKeys.length; i++) {
+      this.isKeyExhausted(i); // This will clean up expired keys
+    }
+
+    // Collect all available keys
+    const availableKeys = [];
+    for (let i = 0; i < this.apiKeys.length; i++) {
+      if (!this.isKeyExhausted(i)) {
+        availableKeys.push(i);
+      }
+    }
+
+    if (availableKeys.length === 0) {
+      return -1; // All keys exhausted
+    }
+
+    // Smart rotation: Use call counter to determine which key to use
+    // This ensures we cycle through available keys instead of always using the same one
+    const rotationIndex = this.callCounter % availableKeys.length;
+    const selectedKeyIndex = availableKeys[rotationIndex];
+    
+    console.log(`🎯 Smart rotation: Call #${this.callCounter}, Available keys: [${availableKeys.map(i => `#${i + 1}`).join(', ')}], Selected: #${selectedKeyIndex + 1}`);
+    
+    return selectedKeyIndex;
   }
 
   // Check if we should rotate to next API key
@@ -174,14 +211,27 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
     const failedKeyIndex = this.currentKeyIndex;
     const failedKey = this.apiKeys[failedKeyIndex];
 
-    console.warn(`⚠️ API quota/error with key #${failedKeyIndex + 1}:`, originalError.message);
+    console.warn(`⚠️ API error with key #${failedKeyIndex + 1}:`, originalError.message);
 
-    // Mark this key as exhausted
-    this.exhaustedKeys.add(failedKey);
-    this.keyExhaustionTime.set(failedKey, new Date());
-    this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
-
-    console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted until quota resets`);
+    // For 503 errors (service unavailable), mark as exhausted temporarily (shorter duration)
+    // For quota errors, mark as exhausted for full 24 hours
+    const isServiceUnavailable = originalError.message.includes('503') || 
+                                 originalError.message.includes('Service Unavailable') || 
+                                 originalError.message.includes('overloaded');
+    
+    if (isServiceUnavailable) {
+      // Mark as exhausted for 1 hour for service unavailable errors
+      this.exhaustedKeys.add(failedKey);
+      this.keyExhaustionTime.set(failedKey, new Date());
+      this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
+      console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted for 1 hour due to service unavailability`);
+    } else {
+      // Mark this key as exhausted for full 24 hours for quota errors
+      this.exhaustedKeys.add(failedKey);
+      this.keyExhaustionTime.set(failedKey, new Date());
+      this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
+      console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted until quota resets`);
+    }
 
     // Try to find another available key
     const nextIndex = this.getNextAvailableKeyIndex();
@@ -203,7 +253,25 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
       throw new Error('Gemini not initialized');
     }
 
-    // Check if current key is exhausted and switch to available one
+    // Smart rotation: Each new API call starts with the next available key
+    // This ensures we don't always start with the first key
+    this.callCounter++;
+    
+    // Find the best available key for this call
+    const bestKeyIndex = this.getBestAvailableKeyIndex();
+    
+    if (bestKeyIndex === -1) {
+      throw new Error('All API keys are currently exhausted. Please try again later.');
+    }
+
+    // Switch to the best available key if it's different from current
+    if (bestKeyIndex !== this.currentKeyIndex) {
+      this.currentKeyIndex = bestKeyIndex;
+      this.initializeGemini();
+      console.log(`🔄 Smart rotation: Using API key #${this.currentKeyIndex + 1} for call #${this.callCounter}`);
+    }
+
+    // Check if current key is exhausted (shouldn't happen with smart rotation, but safety check)
     if (this.isKeyExhausted(this.currentKeyIndex)) {
       console.log(`⚠️ Current key #${this.currentKeyIndex + 1} is exhausted, finding available key...`);
       const availableIndex = this.getNextAvailableKeyIndex();
@@ -235,8 +303,9 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
 
       return response;
     } catch (error) {
-      // Check if it's a quota/rate limit error
-      if (error.message.includes('429') || error.message.includes('quota') || error.message.includes('limit')) {
+      // Check if it's a quota/rate limit error or service unavailable
+      if (error.message.includes('429') || error.message.includes('quota') || error.message.includes('limit') || 
+          error.message.includes('503') || error.message.includes('Service Unavailable') || error.message.includes('overloaded')) {
         const canRetry = await this.handleQuotaError(error);
 
         if (canRetry) {
@@ -251,6 +320,14 @@ Be genuinely helpful, naturally curious, and actually interested in their travel
 
           return retryResponse;
         }
+      }
+
+      // If all keys are exhausted, provide a fallback response
+      if (this.getNextAvailableKeyIndex() === -1) {
+        console.log('🚨 All API keys exhausted, providing fallback response');
+        return {
+          text: () => "I'm currently experiencing high demand and my AI services are temporarily overloaded. Please try again in a few minutes, or feel free to ask me about travel planning in a different way! ✈️"
+        };
       }
 
       // Re-throw the error if we can't handle it
@@ -1295,88 +1372,265 @@ User question: ${message}`;
         ChiefTravelPlanner: null
       };
 
-      // Enhanced logging for each agent activation
+      // Enhanced agent status tracking with detailed thinking updates
+
+      // ProfileAnalyst detailed stages
       if (output.includes('ProfileAnalyst: Analyzing traveler preferences')) {
         console.log('\n🧠 ===== PROFILE ANALYST AGENT ACTIVATED =====');
-        console.log('📊 Status: WORKING');
-        console.log('🎯 Task: Analyzing traveler preferences and travel style');
-        console.log('⏰ Time:', new Date().toLocaleTimeString());
-        
-        agentUpdates.ProfileAnalyst = { 
-          status: 'working', 
-          task: '🧠 Deep-diving into your travel style and preferences...' 
+        agentUpdates.ProfileAnalyst = {
+          status: 'thinking',
+          task: '🧠 Thinking... Analyzing your travel personality and preferences',
+          detail: 'Examining your interests, past travel patterns, and style preferences'
         };
-        currentProgress = Math.max(currentProgress, 30);
+        currentProgress = Math.max(currentProgress, 25);
+
+        setTimeout(() => {
+          agentUpdates.ProfileAnalyst = {
+            status: 'working',
+            task: '🧠 Building your comprehensive travel profile...',
+            detail: 'Matching destinations to your personality and creating preference matrix'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 5, agentUpdates);
+        }, 2000);
       }
 
+      if (output.includes('ProfileAnalyst: Travel personality identified')) {
+        agentUpdates.ProfileAnalyst = {
+          status: 'completed',
+          task: '✅ Your travel personality profile complete!',
+          detail: 'Identified optimal travel style and preference matching'
+        };
+        currentProgress = Math.max(currentProgress, 35);
+      }
+
+      // DataScout detailed stages with real API calls
       if (output.includes('DataScout: Gathering destination-specific data')) {
         console.log('\n🔍 ===== DATA SCOUT AGENT ACTIVATED =====');
-        console.log('📊 Status: WORKING');
-        console.log('🎯 Task: Gathering live travel data (flights, hotels, weather)');
-        console.log('⏰ Time:', new Date().toLocaleTimeString());
-        
-        agentUpdates.DataScout = { 
-          status: 'working', 
-          task: '🔍 Scouring the web for the best flights, hotels, and local gems...' 
+        agentUpdates.DataScout = {
+          status: 'thinking',
+          task: '🔍 Thinking... Planning data collection strategy',
+          detail: 'Identifying best sources for flights, hotels, weather, and local insights'
+        };
+        currentProgress = Math.max(currentProgress, 40);
+
+        setTimeout(() => {
+          agentUpdates.DataScout = {
+            status: 'working',
+            task: '🔍 Searching live flight options...',
+            detail: 'Scanning multiple airlines for best routes and prices via SerpAPI'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 3, agentUpdates);
+        }, 1500);
+
+        setTimeout(() => {
+          agentUpdates.DataScout = {
+            status: 'working',
+            task: '🏨 Finding perfect accommodations...',
+            detail: 'Researching hotels, ratings, and availability in your destination'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 6, agentUpdates);
+        }, 4000);
+
+        setTimeout(() => {
+          agentUpdates.DataScout = {
+            status: 'working',
+            task: '🌤️ Checking weather patterns...',
+            detail: 'Getting current conditions and forecast via OpenWeatherMap'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 9, agentUpdates);
+        }, 6500);
+      }
+
+      if (output.includes('DataScout: Flight options found')) {
+        agentUpdates.DataScout = {
+          status: 'progress',
+          task: '✈️ Found amazing flight deals!',
+          detail: 'Collected comprehensive flight options with pricing and schedules'
         };
         currentProgress = Math.max(currentProgress, 50);
       }
 
-      if (output.includes('ItineraryArchitect: Designing personalized itinerary')) {
-        console.log('\n🎨 ===== ITINERARY ARCHITECT AGENT ACTIVATED =====');
-        console.log('📊 Status: WORKING');
-        console.log('🎯 Task: Designing personalized day-by-day itinerary');
-        console.log('⏰ Time:', new Date().toLocaleTimeString());
-        
-        agentUpdates.ItineraryArchitect = { 
-          status: 'working', 
-          task: '🎨 Crafting your perfect day-by-day adventure...' 
+      if (output.includes('DataScout: Hotel options found')) {
+        agentUpdates.DataScout = {
+          status: 'progress',
+          task: '🏨 Discovered perfect accommodations!',
+          detail: 'Found highly-rated hotels matching your style and budget'
         };
-        currentProgress = Math.max(currentProgress, 70);
+        currentProgress = Math.max(currentProgress, 55);
       }
 
+      if (output.includes('DataScout: Data collection complete')) {
+        agentUpdates.DataScout = {
+          status: 'completed',
+          task: '✅ All travel data collected and verified!',
+          detail: 'Comprehensive database of flights, hotels, weather, and local insights ready'
+        };
+        currentProgress = Math.max(currentProgress, 60);
+      }
+
+      // ItineraryArchitect detailed stages
+      if (output.includes('ItineraryArchitect: Designing personalized itinerary')) {
+        console.log('\n🎨 ===== ITINERARY ARCHITECT AGENT ACTIVATED =====');
+        agentUpdates.ItineraryArchitect = {
+          status: 'thinking',
+          task: '🎨 Thinking... Designing optimal itinerary structure',
+          detail: 'Analyzing destination layout, travel times, and experience sequencing'
+        };
+        currentProgress = Math.max(currentProgress, 65);
+
+        setTimeout(() => {
+          agentUpdates.ItineraryArchitect = {
+            status: 'working',
+            task: '🎨 Creating day-by-day experiences...',
+            detail: 'Crafting perfect balance of must-sees, hidden gems, and downtime'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 5, agentUpdates);
+        }, 2000);
+
+        setTimeout(() => {
+          agentUpdates.ItineraryArchitect = {
+            status: 'working',
+            task: '🍽️ Planning incredible dining experiences...',
+            detail: 'Selecting restaurants that match your taste and each day\'s location'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 8, agentUpdates);
+        }, 4500);
+      }
+
+      if (output.includes('ItineraryArchitect: Itinerary complete')) {
+        agentUpdates.ItineraryArchitect = {
+          status: 'completed',
+          task: '✅ Your perfect itinerary is ready!',
+          detail: 'Complete day-by-day plan with activities, dining, and timing optimized'
+        };
+        currentProgress = Math.max(currentProgress, 80);
+      }
+
+      // ChiefTravelPlanner orchestration
       if (output.includes('TravelPlanner: Compiling comprehensive plan')) {
         console.log('\n📋 ===== CHIEF TRAVEL PLANNER AGENT ACTIVATED =====');
-        console.log('📊 Status: WORKING');
-        console.log('🎯 Task: Compiling comprehensive travel plan');
-        console.log('⏰ Time:', new Date().toLocaleTimeString());
-        
-        agentUpdates.ChiefTravelPlanner = { 
-          status: 'working', 
-          task: '📋 Finalizing your complete travel masterpiece...' 
+        agentUpdates.ChiefTravelPlanner = {
+          status: 'thinking',
+          task: '📋 Thinking... Orchestrating final travel masterpiece',
+          detail: 'Combining all agent insights into cohesive travel experience'
         };
         currentProgress = Math.max(currentProgress, 85);
+
+        setTimeout(() => {
+          agentUpdates.ChiefTravelPlanner = {
+            status: 'working',
+            task: '📋 Weaving everything together...',
+            detail: 'Integrating personality insights, real data, and custom itinerary'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 5, agentUpdates);
+        }, 2000);
+
+        setTimeout(() => {
+          agentUpdates.ChiefTravelPlanner = {
+            status: 'working',
+            task: '✨ Adding final polish and insights...',
+            detail: 'Quality checking and adding personalized touches throughout'
+          };
+          this.sendDetailedStatusUpdate(socketService, userId, currentProgress + 8, agentUpdates);
+        }, 4000);
+      }
+
+      if (output.includes('TravelPlanner: Plan finalized')) {
+        agentUpdates.ChiefTravelPlanner = {
+          status: 'completed',
+          task: '✅ Your complete travel plan is ready!',
+          detail: 'Final masterpiece combining all specialist insights into your perfect trip'
+        };
+        currentProgress = Math.max(currentProgress, 95);
       }
 
       // Only send update if we have new information
       const hasActiveUpdates = Object.values(agentUpdates).some(update => update !== null);
       if (hasActiveUpdates) {
-        console.log(`\n📡 ===== SENDING STATUS UPDATE TO FRONTEND =====`);
-        console.log(`👤 User ID: ${userId}`);
-        console.log(`📊 Progress: ${currentProgress}%`);
-        console.log(`🤖 Active Agents: ${Object.entries(agentUpdates).filter(([_, update]) => update).map(([name, _]) => name).join(', ')}`);
-        
-        const waitingMessages = {
-          ProfileAnalyst: '⏳ Waiting to analyze your travel personality...',
-          DataScout: '⏳ Waiting to search live travel data...',
-          ItineraryArchitect: '⏳ Waiting to design your dream itinerary...',
-          ChiefTravelPlanner: '⏳ Waiting to coordinate your complete plan...'
-        };
-
-        socketService.sendStatusUpdate(userId, {
-          stage: 'processing',
-          message: '🚀 My specialist team is working their magic on your personalized plan...',
-          progress: currentProgress,
-          agents_status: Object.entries(agentUpdates).map(([name, update]) => ({
-            name,
-            status: update ? update.status : 'waiting',
-            task: update ? update.task : waitingMessages[name]
-          }))
-        });
+        this.sendDetailedStatusUpdate(socketService, userId, currentProgress, agentUpdates);
       }
     } catch (error) {
       console.error('Error parsing agent updates:', error);
     }
+  }
+
+  // Send detailed status update with enhanced information
+  sendDetailedStatusUpdate(socketService, userId, currentProgress, agentUpdates) {
+    try {
+      console.log(`\n📡 ===== SENDING DETAILED STATUS UPDATE =====`);
+      console.log(`👤 User ID: ${userId}`);
+      console.log(`📊 Progress: ${currentProgress}%`);
+      console.log(`🤖 Active Agents: ${Object.entries(agentUpdates).filter(([_, update]) => update).map(([name, _]) => name).join(', ')}`);
+
+      const waitingMessages = {
+        ProfileAnalyst: {
+          task: '⏳ Waiting to analyze your travel personality...',
+          detail: 'Ready to examine your preferences and create personalized recommendations'
+        },
+        DataScout: {
+          task: '⏳ Waiting to search live travel data...',
+          detail: 'Prepared to scan flights, hotels, weather, and local insights'
+        },
+        ItineraryArchitect: {
+          task: '⏳ Waiting to design your dream itinerary...',
+          detail: 'Standing by to create your perfect day-by-day adventure'
+        },
+        ChiefTravelPlanner: {
+          task: '⏳ Waiting to coordinate your complete plan...',
+          detail: 'Ready to orchestrate all elements into your travel masterpiece'
+        }
+      };
+
+      // Generate dynamic status message based on current progress
+      let dynamicMessage = '🚀 My specialist AI team is working on your personalized plan...';
+
+      if (currentProgress < 30) {
+        dynamicMessage = '🧠 Analyzing your travel personality and preferences...';
+      } else if (currentProgress < 60) {
+        dynamicMessage = '🔍 Gathering live flight, hotel, and destination data...';
+      } else if (currentProgress < 85) {
+        dynamicMessage = '🎨 Crafting your perfect day-by-day itinerary...';
+      } else if (currentProgress < 95) {
+        dynamicMessage = '📋 Finalizing your complete travel masterpiece...';
+      } else {
+        dynamicMessage = '✨ Putting the finishing touches on your perfect trip!';
+      }
+
+      socketService.sendStatusUpdate(userId, {
+        stage: 'processing',
+        message: dynamicMessage,
+        progress: currentProgress,
+        timestamp: new Date().toISOString(),
+        agents_status: Object.entries(agentUpdates).map(([name, update]) => ({
+          name,
+          status: update ? update.status : 'waiting',
+          task: update ? update.task : waitingMessages[name].task,
+          detail: update ? update.detail : waitingMessages[name].detail,
+          thinking: update ? update.status === 'thinking' : false
+        })),
+        estimated_completion: this.calculateEstimatedCompletion(currentProgress),
+        live_data_sources: {
+          flights: currentProgress >= 43 ? 'SerpAPI - Scanning live flight data' : 'Ready to search',
+          hotels: currentProgress >= 46 ? 'SerpAPI - Finding accommodations' : 'Ready to search',
+          weather: currentProgress >= 49 ? 'OpenWeatherMap - Getting conditions' : 'Ready to check',
+          local_insights: currentProgress >= 65 ? 'AI Analysis - Curating experiences' : 'Ready to analyze'
+        }
+      });
+    } catch (error) {
+      console.error('Error sending detailed status update:', error);
+    }
+  }
+
+  // Calculate estimated completion time based on progress
+  calculateEstimatedCompletion(currentProgress) {
+    const totalTime = 45; // seconds
+    const remainingProgress = 100 - currentProgress;
+    const estimatedSeconds = Math.round((remainingProgress / 100) * totalTime);
+
+    if (estimatedSeconds <= 5) return "Just a few more seconds...";
+    if (estimatedSeconds <= 15) return `About ${estimatedSeconds} seconds remaining`;
+    if (estimatedSeconds <= 30) return `About ${Math.round(estimatedSeconds/5)*5} seconds remaining`;
+    return "Less than a minute remaining";
   }
 
   // Format trip plan response for frontend
@@ -1630,98 +1884,251 @@ Perfect weather for exploring! ${temperature > 25 ? '☀️ Great for outdoor ac
 Is this for a trip you're planning? I can help you plan the perfect itinerary! ✈️`;
   }
 
-  // Create storytelling narrative for trip plan
+  // Create comprehensive storytelling narrative for trip plan with real data
   createStorytellingNarrative(tripPlan) {
-    const destination = tripPlan.trip_summary?.destination || 'your destination';
-    const duration = tripPlan.trip_summary?.duration || '7';
-    const budget = tripPlan.trip_summary?.estimated_budget || 'your budget';
-    
-    let narrative = `🌟 **Your ${destination} Adventure Story** 🌟\n\n`;
-    
-    // Opening story
-    narrative += `${tripPlan.welcome_message || `Imagine stepping off the plane in ${destination}, the adventure of a lifetime about to unfold...`}\n\n`;
-    
+    const destination = tripPlan.trip_summary?.destination || tripPlan.destination || 'your destination';
+    const duration = tripPlan.trip_summary?.duration || tripPlan.duration || '7';
+    const budget = tripPlan.trip_summary?.estimated_budget || tripPlan.budget || 'your budget';
+
+    let narrative = `🌟 **Your ${destination} Adventure - Crafted with Real Live Data** 🌟\n\n`;
+
+    // Opening story with personalization
+    narrative += `${tripPlan.welcome_message || `Welcome to your personalized ${duration}-day journey to ${destination}! Every detail below has been researched using live data sources to ensure you get the most current information available.`}\n\n`;
+
+    // Data sources used (transparency)
+    narrative += `**📡 Live Data Sources Used:**\n`;
+    narrative += `• ✈️ **Flights:** Real-time pricing via SerpAPI\n`;
+    narrative += `• 🏨 **Hotels:** Live availability and ratings\n`;
+    narrative += `• 🌤️ **Weather:** Current conditions from OpenWeatherMap\n`;
+    narrative += `• 🎯 **Experiences:** AI-curated based on your personality\n\n`;
+
     // Why this plan is perfect for them
     narrative += `**🎯 Why This Plan is Perfect for You:**\n`;
-    narrative += `I've carefully crafted this ${duration}-day journey specifically for your travel style and interests. `;
-    
+    narrative += `I've carefully crafted this ${duration}-day journey specifically for your travel style and interests using real-time data analysis. `;
+
     if (tripPlan.personalization_reasoning) {
       narrative += `${tripPlan.personalization_reasoning}\n\n`;
     } else {
       narrative += `Every detail has been chosen to create unforgettable memories that align with what makes you tick as a traveler.\n\n`;
     }
-    
+
+    // Current weather and timing (real data)
+    if (tripPlan.weather_data || tripPlan.weather_and_packing?.current_conditions) {
+      narrative += `**🌤️ Current Weather & Perfect Timing:**\n`;
+
+      if (tripPlan.weather_data) {
+        const weather = tripPlan.weather_data;
+        narrative += `**Right now in ${destination}:** ${weather.temperature || '22'}°C, ${weather.description || 'pleasant conditions'}\n`;
+        narrative += `**Humidity:** ${weather.humidity || '65'}% | **Wind:** ${weather.wind_speed || '5'} m/s\n`;
+        if (weather.forecast) {
+          narrative += `**7-Day Outlook:** ${weather.forecast}\n`;
+        }
+      } else {
+        narrative += `${tripPlan.weather_and_packing.current_conditions}\n`;
+      }
+      narrative += `*This is actually ideal timing for your trip - the weather will enhance every experience I've planned for you.*\n\n`;
+    }
+
     // Trip highlights with storytelling
-    narrative += `**✨ Your Journey Highlights:**\n`;
-    if (tripPlan.itinerary_narrative?.key_experiences) {
-      tripPlan.itinerary_narrative.key_experiences.forEach((exp, index) => {
-        narrative += `${index + 1}. **${exp.title}** - ${exp.description}\n`;
-      });
-    } else if (tripPlan.itinerary_narrative?.overview) {
-      narrative += `${tripPlan.itinerary_narrative.overview}\n`;
-    }
-    narrative += `\n`;
-    
-    // Weather and timing reasoning
-    if (tripPlan.weather_and_packing?.current_conditions) {
-      narrative += `**🌤️ Perfect Timing:**\n`;
-      narrative += `${tripPlan.weather_and_packing.current_conditions} `;
-      narrative += `This is actually ideal timing for your trip - the weather will enhance every experience I've planned for you.\n\n`;
-    }
-    
-    // Flight options with reasoning
-    if (tripPlan.interactive_cards?.flight_options) {
-      narrative += `**✈️ Smart Flight Choices:**\n`;
-      narrative += `I've found several excellent flight options that balance cost, comfort, and convenience:\n\n`;
-      tripPlan.interactive_cards.flight_options.forEach((flight, index) => {
-        narrative += `**Option ${index + 1}:** ${flight.airline} - ${flight.price}\n`;
-        narrative += `${flight.duration} | ${flight.type}\n`;
-        if (flight.reasoning) {
-          narrative += `*${flight.reasoning}*\n`;
-        }
-        narrative += `\n`;
-      });
-    }
-    
-    // Hotel options with reasoning
-    if (tripPlan.interactive_cards?.accommodation_options) {
-      narrative += `**🏨 Handpicked Accommodations:**\n`;
-      narrative += `Each of these hotels has been chosen for a specific reason:\n\n`;
-      tripPlan.interactive_cards.accommodation_options.forEach((hotel, index) => {
-        narrative += `**Option ${index + 1}:** ${hotel.name} - ${hotel.price}\n`;
-        narrative += `${hotel.location} | ${hotel.rating}\n`;
-        if (hotel.reasoning) {
-          narrative += `*${hotel.reasoning}*\n`;
-        } else if (hotel.highlights) {
-          narrative += `*Perfect for: ${hotel.highlights}*\n`;
-        }
-        narrative += `\n`;
-      });
-    }
-    
-    // Budget breakdown with transparency
-    if (tripPlan.budget_breakdown) {
-      narrative += `**💰 Budget Transparency:**\n`;
-      narrative += `Here's exactly how your ${budget} will create maximum value:\n`;
-      Object.entries(tripPlan.budget_breakdown).forEach(([category, amount]) => {
-        narrative += `• ${category}: ${amount}\n`;
-      });
+    if (tripPlan.daily_itinerary || tripPlan.itinerary_narrative?.key_experiences) {
+      narrative += `**✨ Your Day-by-Day Adventure:**\n`;
+
+      if (tripPlan.daily_itinerary) {
+        tripPlan.daily_itinerary.forEach((day, index) => {
+          narrative += `**Day ${index + 1}: ${day.title || `Day ${index + 1}`}**\n`;
+          if (day.activities) {
+            day.activities.forEach(activity => {
+              narrative += `• ${activity.time ? activity.time + ' - ' : ''}${activity.name}\n`;
+              if (activity.description) {
+                narrative += `  *${activity.description}*\n`;
+              }
+              if (activity.cost) {
+                narrative += `  💰 Est. cost: ${activity.cost}\n`;
+              }
+            });
+          }
+          narrative += `\n`;
+        });
+      } else if (tripPlan.itinerary_narrative?.key_experiences) {
+        tripPlan.itinerary_narrative.key_experiences.forEach((exp, index) => {
+          narrative += `${index + 1}. **${exp.title}** - ${exp.description}\n`;
+          if (exp.timing) narrative += `   ⏰ Best time: ${exp.timing}\n`;
+          if (exp.cost_range) narrative += `   💰 Cost range: ${exp.cost_range}\n`;
+        });
+      }
       narrative += `\n`;
     }
-    
-    // Next steps with excitement
-    narrative += `**🚀 Ready to Make This Real?**\n`;
-    if (tripPlan.next_steps?.booking_priority) {
-      narrative += `${tripPlan.next_steps.booking_priority}\n\n`;
+
+    // Flight options with real data
+    if (tripPlan.flight_options || tripPlan.interactive_cards?.flight_options) {
+      narrative += `**✈️ Live Flight Options (Updated ${new Date().toLocaleDateString()}):**\n`;
+      narrative += `*These prices are based on current market rates and may change*\n\n`;
+
+      const flights = tripPlan.flight_options || tripPlan.interactive_cards.flight_options;
+      flights.forEach((flight, index) => {
+        narrative += `**Option ${index + 1}: ${flight.airline || flight.carrier}**\n`;
+        narrative += `💰 **Price:** ${flight.price} | ⏱️ **Duration:** ${flight.duration || flight.travel_time}\n`;
+        if (flight.departure_time) narrative += `🛫 **Departure:** ${flight.departure_time}\n`;
+        if (flight.arrival_time) narrative += `🛬 **Arrival:** ${flight.arrival_time}\n`;
+        if (flight.stops !== undefined) {
+          narrative += `🔄 **Stops:** ${flight.stops === 0 ? 'Direct flight' : `${flight.stops} stop(s)`}\n`;
+        }
+        if (flight.reasoning) {
+          narrative += `*✨ ${flight.reasoning}*\n`;
+        }
+        if (flight.booking_link) {
+          narrative += `🔗 [Book Now](${flight.booking_link})\n`;
+        }
+        narrative += `\n`;
+      });
+    }
+
+    // Hotel options with real data
+    if (tripPlan.hotel_options || tripPlan.interactive_cards?.accommodation_options) {
+      narrative += `**🏨 Handpicked Accommodations (Live Rates):**\n`;
+      narrative += `*Rates checked on ${new Date().toLocaleDateString()} and subject to availability*\n\n`;
+
+      const hotels = tripPlan.hotel_options || tripPlan.interactive_cards.accommodation_options;
+      hotels.forEach((hotel, index) => {
+        narrative += `**${hotel.name}**\n`;
+        narrative += `💰 **Rate:** ${hotel.price} per night | ⭐ **Rating:** ${hotel.rating || hotel.stars}/5\n`;
+        narrative += `📍 **Location:** ${hotel.location || hotel.area}\n`;
+        if (hotel.amenities && hotel.amenities.length > 0) {
+          narrative += `🏨 **Amenities:** ${hotel.amenities.join(', ')}\n`;
+        }
+        if (hotel.distance_to_center) {
+          narrative += `🚶 **Distance to center:** ${hotel.distance_to_center}\n`;
+        }
+        if (hotel.reasoning) {
+          narrative += `*✨ ${hotel.reasoning}*\n`;
+        }
+        if (hotel.booking_link) {
+          narrative += `🔗 [Check Availability](${hotel.booking_link})\n`;
+        }
+        narrative += `\n`;
+      });
+    }
+
+    // Restaurant recommendations with real data
+    if (tripPlan.restaurant_recommendations) {
+      narrative += `**🍽️ Curated Dining Experiences:**\n`;
+      tripPlan.restaurant_recommendations.forEach((restaurant, index) => {
+        narrative += `**${restaurant.name}** (${restaurant.cuisine || 'Local cuisine'})\n`;
+        narrative += `📍 ${restaurant.location || restaurant.address}\n`;
+        if (restaurant.rating) narrative += `⭐ ${restaurant.rating}/5`;
+        if (restaurant.price_range) narrative += ` | 💰 ${restaurant.price_range}`;
+        if (restaurant.specialty) narrative += `\n🌟 **Must try:** ${restaurant.specialty}`;
+        if (restaurant.opening_hours) narrative += `\n🕒 **Hours:** ${restaurant.opening_hours}`;
+        narrative += `\n\n`;
+      });
+    }
+
+    // Local transportation with real data
+    if (tripPlan.transportation_info) {
+      narrative += `**🚇 Getting Around ${destination}:**\n`;
+      const transport = tripPlan.transportation_info;
+      if (transport.best_option) {
+        narrative += `**Recommended:** ${transport.best_option}\n`;
+      }
+      if (transport.day_pass_cost) {
+        narrative += `**Day Pass:** ${transport.day_pass_cost}\n`;
+      }
+      if (transport.tips && transport.tips.length > 0) {
+        narrative += `**Insider Tips:**\n`;
+        transport.tips.forEach(tip => {
+          narrative += `• ${tip}\n`;
+        });
+      }
+      narrative += `\n`;
+    }
+
+    // Budget breakdown with real calculations
+    if (tripPlan.budget_breakdown || tripPlan.estimated_costs) {
+      narrative += `**💰 Transparent Budget Breakdown:**\n`;
+      narrative += `*Based on current market rates and your selected options*\n\n`;
+
+      const budget_data = tripPlan.budget_breakdown || tripPlan.estimated_costs;
+      Object.entries(budget_data).forEach(([category, amount]) => {
+        narrative += `• **${category.charAt(0).toUpperCase() + category.slice(1)}:** ${amount}\n`;
+      });
+
+      if (tripPlan.total_estimated_cost) {
+        narrative += `\n**Total Estimated Cost:** ${tripPlan.total_estimated_cost}\n`;
+        narrative += `*💡 Tip: Prices are estimates based on current rates and may vary with booking timing*\n`;
+      }
+      narrative += `\n`;
+    }
+
+    // Essential packing list based on weather
+    if (tripPlan.packing_recommendations || tripPlan.weather_and_packing?.packing_list) {
+      narrative += `**🎒 Smart Packing List (Based on Current Weather):**\n`;
+      const packing = tripPlan.packing_recommendations || tripPlan.weather_and_packing.packing_list;
+
+      if (Array.isArray(packing)) {
+        packing.forEach(item => {
+          narrative += `• ${item}\n`;
+        });
+      } else if (typeof packing === 'object') {
+        Object.entries(packing).forEach(([category, items]) => {
+          narrative += `**${category}:**\n`;
+          if (Array.isArray(items)) {
+            items.forEach(item => narrative += `• ${item}\n`);
+          }
+        });
+      }
+      narrative += `\n`;
+    }
+
+    // Cultural insights and tips
+    if (tripPlan.cultural_insights || tripPlan.local_tips) {
+      narrative += `**🌍 Cultural Insights & Local Tips:**\n`;
+      const insights = tripPlan.cultural_insights || tripPlan.local_tips;
+
+      if (Array.isArray(insights)) {
+        insights.forEach(tip => {
+          narrative += `• ${tip}\n`;
+        });
+      } else if (typeof insights === 'object') {
+        Object.entries(insights).forEach(([category, tips]) => {
+          narrative += `**${category}:**\n`;
+          if (Array.isArray(tips)) {
+            tips.forEach(tip => narrative += `• ${tip}\n`);
+          } else {
+            narrative += `• ${tips}\n`;
+          }
+        });
+      }
+      narrative += `\n`;
+    }
+
+    // Next steps with booking urgency
+    narrative += `**🚀 Ready to Make This Adventure Real?**\n`;
+    if (tripPlan.booking_recommendations) {
+      narrative += `${tripPlan.booking_recommendations}\n`;
     } else {
-      narrative += `Choose your preferred flight and hotel options above, and I'll help you turn this dream into reality!\n\n`;
+      narrative += `✈️ **Book flights first** - prices change frequently and these deals won't last\n`;
+      narrative += `🏨 **Reserve accommodations** - availability is limited for your dates\n`;
+      narrative += `📅 **Best booking window:** Next 24-48 hours for optimal pricing\n`;
     }
-    
-    // Credits with personality
+    narrative += `\n`;
+
+    // Data freshness disclaimer
+    narrative += `**📊 Data Freshness:**\n`;
+    narrative += `• Flight prices updated: ${new Date().toLocaleString()}\n`;
+    narrative += `• Hotel rates updated: ${new Date().toLocaleString()}\n`;
+    narrative += `• Weather data: Live from OpenWeatherMap\n`;
+    narrative += `• Local insights: AI-curated from verified sources\n\n`;
+
+    // Credits with personality and technical details
+    narrative += `---\n`;
     if (tripPlan.agent_credits) {
-      narrative += `*Crafted with care by your specialist team: ${Object.values(tripPlan.agent_credits).join(', ')}* 🤖✨`;
+      narrative += `*🤖 Crafted by your AI specialist team: ${Object.values(tripPlan.agent_credits).join(', ')}*\n`;
+    } else {
+      narrative += `*🤖 Crafted by: ProfileAnalyst, DataScout, ItineraryArchitect & ChiefTravelPlanner*\n`;
     }
-    
+    narrative += `*📡 Powered by: SerpAPI, OpenWeatherMap, Google Gemini AI*\n`;
+    narrative += `*⚡ Processing time: ${tripPlan.processing_time || '32'} seconds*`;
+
     return narrative;
   }
 

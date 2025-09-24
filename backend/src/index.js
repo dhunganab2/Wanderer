@@ -14,6 +14,8 @@ import matchingRoutes from './routes/matching.js';
 import bucketListRoutes from './routes/bucketlist.js';
 import messagingRoutes from './routes/messaging.js';
 import aiRoutes from './routes/ai.js';
+import aiV2Routes from './routes/aiV2.js';
+import aiV3Routes from './routes/aiV3.js';
 
 // Import socket services
 import { socketAuth } from './middleware/socketAuth.js';
@@ -76,7 +78,9 @@ app.get('/', (req, res) => {
       matching: '/api/matching',
       bucketlist: '/api/bucketlist',
       messaging: '/api/messaging',
-      ai: '/api/ai'
+      ai: '/api/ai',
+      'ai-v2': '/api/ai/v2',
+      'ai-v3': '/api/ai/v3'
     },
     timestamp: new Date().toISOString()
   });
@@ -101,7 +105,9 @@ app.get('/api', (req, res) => {
       matching: '/api/matching',
       bucketlist: '/api/bucketlist',
       messaging: '/api/messaging',
-      ai: '/api/ai'
+      ai: '/api/ai',
+      'ai-v2': '/api/ai/v2',
+      'ai-v3': '/api/ai/v3'
     }
   });
 });
@@ -115,6 +121,8 @@ app.use('/api/matching', matchingRoutes);
 app.use('/api/bucketlist', bucketListRoutes);
 app.use('/api/messaging', messagingRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/ai/v2', aiV2Routes);
+app.use('/api/ai/v3', aiV3Routes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

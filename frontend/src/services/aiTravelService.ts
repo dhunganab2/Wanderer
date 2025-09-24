@@ -11,7 +11,7 @@ class AITravelService {
   private timeout: number;
 
   constructor(config?: AIServiceConfig) {
-    this.baseUrl = config?.baseUrl || 'http://localhost:3001/api/ai';
+    this.baseUrl = config?.baseUrl || 'http://localhost:3001/api/ai/v2';
     this.timeout = config?.timeout || 120000; // 2 minutes for complex trip planning
   }
 
@@ -285,14 +285,22 @@ class AITravelService {
     }
   }
 
-  async clearConversation(): Promise<{ success: boolean; error?: string }> {
+  async clearConversation(userContext?: any): Promise<{ success: boolean; error?: string }> {
     try {
-      await this.makeRequest<any>('/conversation', {
+      const userId = userContext?.userId || userContext?.userProfile?.userId;
+      const conversationId = this.getConversationId();
+      
+      if (!userId) {
+        throw new Error('User ID is required to clear conversation');
+      }
+
+      // Call the correct endpoint with userId as URL parameter
+      await this.makeRequest<any>(`/conversation/${userId}`, {
         method: 'DELETE',
         body: JSON.stringify({
-          conversationId: this.getConversationId()
+          conversationId: conversationId
         }),
-      });
+      }, userContext);
 
       // Clear local conversation ID to start fresh
       localStorage.removeItem('ai_conversation_id');
