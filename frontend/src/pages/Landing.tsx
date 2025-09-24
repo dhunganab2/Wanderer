@@ -1,6 +1,6 @@
 import React from 'react';
 // Fixed Star import issue
-import { ArrowRight, MapPin, Users, Shield, Sparkles, Globe, Heart, Camera, LogIn, UserPlus, Star } from 'lucide-react';
+import { ArrowRight, MapPin, Users, Shield, Sparkles, Globe, Heart, Camera, LogIn, UserPlus, Star, Bot, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { FeatureCard } from '@/components/FeatureCard';
@@ -176,6 +176,109 @@ export default function Landing() {
             <div className="w-1 h-4 bg-gradient-sunrise rounded-full mt-2 animate-pulse-soft" />
           </div>
           <p className="text-white/60 text-xs mt-2 font-medium">Scroll to explore</p>
+        </div>
+      </section>
+
+      {/* AI Travel Planner Section */}
+      <section className="relative py-24 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10" />
+        </div>
+        
+        <div className="max-w-7xl mx-auto px-6 relative">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium mb-6">
+              <Bot className="w-4 h-4" />
+              <span>Powered by AI</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6 font-display">
+              Meet Your AI Travel Planner
+            </h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+              Get personalized trip plans with real-time data, detailed itineraries, and expert recommendations. 
+              Our multi-agent AI system creates the perfect travel experience just for you.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            {/* Left Side - Features */}
+            <div className="space-y-8">
+              <div className="flex items-start space-x-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+                  <Zap className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Real-Time Data</h3>
+                  <p className="text-gray-600">Live flight prices, hotel availability, and current weather conditions for accurate planning.</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">AI-Generated Itineraries</h3>
+                  <p className="text-gray-600">Detailed day-by-day plans with activities, restaurants, and cultural insights tailored to your preferences.</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center flex-shrink-0">
+                  <Heart className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Personalized Experience</h3>
+                  <p className="text-gray-600">Learn from your travel history and preferences to suggest destinations and activities you'll love.</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Right Side - CTA */}
+            <div className="text-center lg:text-left">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
+                <div className="w-16 h-16 mx-auto lg:mx-0 mb-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <Bot className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                  Try AI Travel Planning
+                </h3>
+                <p className="text-gray-600 mb-6">
+                  Get a complete travel plan in minutes. Just tell us where you want to go and we'll handle the rest.
+                </p>
+                {user ? (
+                  <Button 
+                    size="lg" 
+                    className="w-full lg:w-auto bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-8 py-3 text-lg font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+                    asChild
+                  >
+                    <Link to="/ai-travel-planner">
+                      <Bot className="w-5 h-5 mr-2" />
+                      Start Planning
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </Link>
+                  </Button>
+                ) : (
+                  <div className="space-y-3">
+                    <Button 
+                      size="lg" 
+                      className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-8 py-3 text-lg font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+                      asChild
+                    >
+                      <Link to="/signup">
+                        <UserPlus className="w-5 h-5 mr-2" />
+                        Sign Up to Try AI Planning
+                      </Link>
+                    </Button>
+                    <p className="text-sm text-gray-500">
+                      Free to use • No credit card required
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

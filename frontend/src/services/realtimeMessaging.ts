@@ -372,6 +372,23 @@ class RealtimeMessagingService {
     }
   }
 
+  // AI Status Update functionality
+  onAIStatusUpdate(callback: (data: any) => void) {
+    this.listeners.set('ai_status_update', callback);
+    
+    if (this.socket) {
+      this.socket.on('ai_status_update', callback);
+    }
+  }
+
+  offAIStatusUpdate() {
+    this.listeners.delete('ai_status_update');
+    
+    if (this.socket) {
+      this.socket.off('ai_status_update');
+    }
+  }
+
   // Disconnect
   disconnect() {
     console.log('Disconnecting from messaging service');
@@ -738,6 +755,10 @@ class RealtimeMessagingService {
 
 // Create singleton instance
 export const messagingService = new RealtimeMessagingService();
+
+// Export as default and as realtimeMessaging for backward compatibility
+export const realtimeMessaging = messagingService;
+export default messagingService;
 
 // Typing indicator hook
 export class TypingIndicator {

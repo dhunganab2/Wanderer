@@ -15,7 +15,6 @@ import { enhancedUsers } from '@/data/enhancedSampleData';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DebugInfo } from '@/components/DebugInfo';
-import { ChatLayout } from '@/components/ChatLayout';
 import type { User, FilterSettings } from '@/types';
 import type { MatchRecommendation } from '@/services/matchingAlgorithm';
 
@@ -355,8 +354,7 @@ export default function EnhancedDiscover() {
   const currentCompatibility = getCurrentCardCompatibility();
 
   return (
-    <ChatLayout>
-      <div className="h-full bg-background overflow-y-auto">
+    <div className="h-full bg-background overflow-y-auto">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
@@ -734,7 +732,6 @@ export default function EnhancedDiscover() {
 
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
-      </div>
-    </ChatLayout>
+    </div>
   );
 }

@@ -4,32 +4,20 @@ import {
   Send,
   RefreshCw,
   Sparkles,
-  MapPin,
-  Plane,
-  Mountain,
-  Camera,
-  Shield,
-  DollarSign,
   Bot,
   User,
   X,
   GripVertical
 } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { cn } from '../lib/utils';
-import type { AIChatProps, AIChatMessage, AIQuickAction } from '../types/aiChat';
+import type { AIChatProps, AIChatMessage } from '../types/aiChat';
 import useAITravelBuddy from '../hooks/useAITravelBuddy';
+import AgentStatusDisplay from './AgentStatusDisplay';
 
-const quickActionIcons: Record<string, React.ComponentType<any>> = {
-  destination_ideas: MapPin,
-  budget_tips: DollarSign,
-  packing_advice: Plane,
-  local_culture: Camera,
-  safety_tips: Shield,
-  hidden_gems: Mountain,
-};
 
 interface ResizableAISidebarProps extends Omit<AIChatProps, 'className' | 'initialPosition'> {
   onChatToggle?: (isOpen: boolean) => void;
@@ -42,22 +30,27 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
   onChatToggle,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [showQuickActions, setShowQuickActions] = useState(true);
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(400);
+  const [agentStatus, setAgentStatus] = useState({
+    isVisible: false,
+    stage: '',
+    message: '',
+    progress: 0,
+    agentsStatus: [] as Array<{name: string; status: 'preparing' | 'working' | 'completed' | 'waiting'; task: string}>
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(0);
+  const socketRef = useRef<Socket | null>(null);
 
   const {
     messages,
     isLoading,
     error,
-    quickActions,
     sendMessage,
-    sendQuickAction,
     clearConversation,
     clearError,
   } = useAITravelBuddy(userContext);
@@ -72,13 +65,73 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
     setTimeout(() => inputRef.current?.focus(), 300);
   }, []);
 
+  // Setup WebSocket connection for agent status updates
+  useEffect(() => {
+    if (!userContext?.userId) return;
+
+    const socket = io('http://localhost:3001', {
+      transports: ['websocket'],
+      autoConnect: true,
+      query: {
+        userId: userContext.userId
+      }
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('🔌 Connected to WebSocket for agent status updates');
+    });
+
+    socket.on('ai_status_update', (data) => {
+      console.log('🤖 Agent status update received:', data);
+
+      if (data.type === 'travel_planning_status') {
+        setAgentStatus({
+          isVisible: true,
+          stage: data.stage || 'Processing',
+          message: data.message || 'AI agents are working on your request...',
+          progress: data.progress || 0,
+          agentsStatus: data.agents || []
+        });
+
+        // Hide status after completion
+        if (data.progress >= 100) {
+          setTimeout(() => {
+            setAgentStatus(prev => ({ ...prev, isVisible: false }));
+          }, 3000);
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('🔌 Disconnected from WebSocket');
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [userContext?.userId]);
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isLoading) return;
 
     const message = inputValue.trim();
     setInputValue('');
-    setShowQuickActions(false);
     onMessageSent?.(message);
+
+    // Show agent status when sending message
+    setAgentStatus({
+      isVisible: true,
+      stage: 'Initializing',
+      message: 'Preparing AI travel agents...',
+      progress: 5,
+      agentsStatus: [
+        { name: 'Travel Planner', status: 'preparing', task: 'Analyzing your request' },
+        { name: 'Destination Expert', status: 'waiting', task: 'Waiting to research destinations' },
+        { name: 'Budget Advisor', status: 'waiting', task: 'Waiting to calculate costs' }
+      ]
+    });
 
     await sendMessage(message);
   };
@@ -90,15 +143,8 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
     }
   };
 
-  const handleQuickAction = async (action: AIQuickAction) => {
-    setShowQuickActions(false);
-    onMessageSent?.(action.prompt);
-    await sendQuickAction(action);
-  };
-
   const handleNewChat = async () => {
     await clearConversation();
-    setShowQuickActions(true);
     setInputValue('');
   };
 
@@ -125,8 +171,13 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
-  const formatMessage = (content: string) => {
-    return content
+  const formatMessage = (content: any) => {
+    // Ensure content is a string
+    const stringContent = typeof content === 'string' ? content :
+                         typeof content === 'object' ? JSON.stringify(content, null, 2) :
+                         String(content);
+
+    return stringContent
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/```(.*?)```/gs, '<code class="block bg-muted p-2 rounded my-2">$1</code>')
@@ -213,46 +264,6 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
     );
   };
 
-  const renderQuickActions = () => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="mb-8 space-y-4"
-    >
-      <div className="text-center">
-        <div className="text-sm text-foreground mb-2 font-semibold">
-          ✨ Quick Start
-        </div>
-        <div className="text-xs text-muted-foreground">
-          Choose a topic to get started
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3">
-        {quickActions.map((action) => {
-          const IconComponent = quickActionIcons[action.id] || Sparkles;
-          return (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              className="h-auto p-4 flex flex-row items-center space-x-4 text-sm bg-gradient-to-r from-muted/60 to-background/60 border-border text-foreground hover:from-sunrise-coral/40 hover:to-sunset-pink/40 hover:border-sunrise-coral/50 hover:shadow-lg hover:shadow-sunrise-coral/20 transition-all duration-300 backdrop-blur-sm rounded-xl group"
-              onClick={() => handleQuickAction(action)}
-              disabled={isLoading}
-            >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sunrise-coral/20 to-sunset-pink/20 flex items-center justify-center border border-sunrise-coral/30 flex-shrink-0 group-hover:from-sunrise-coral/30 group-hover:to-sunset-pink/30 transition-all duration-300">
-                <IconComponent className="w-5 h-5 text-sunrise-coral group-hover:text-sunrise-coral-light" />
-              </div>
-              <span className="text-left leading-tight text-sm font-medium group-hover:text-foreground transition-colors duration-300">
-                {action.text}
-              </span>
-            </Button>
-          );
-        })}
-      </div>
-    </motion.div>
-  );
 
   return (
     <div 
@@ -298,10 +309,40 @@ const ResizableAISidebar: React.FC<ResizableAISidebarProps> = ({
         </div>
       </div>
 
+      {/* Agent Status Display */}
+      <AgentStatusDisplay
+        isVisible={agentStatus.isVisible}
+        stage={agentStatus.stage}
+        message={agentStatus.message}
+        progress={agentStatus.progress}
+        agentsStatus={agentStatus.agentsStatus}
+      />
+
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 custom-scrollbar bg-gradient-to-b from-background/50 to-muted/30">
         <AnimatePresence mode="popLayout">
-          {messages.length === 0 && showQuickActions && renderQuickActions()}
+          {messages.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-12"
+            >
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                <Sparkles className="w-8 h-8 text-white" />
+              </div>
+              <div className="text-xl font-semibold text-foreground mb-2">
+                Hi! I'm WanderBuddy ✈️
+              </div>
+              <div className="text-sm text-muted-foreground mb-4">
+                Your AI travel companion powered by multi-agent intelligence
+              </div>
+              <div className="text-xs text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                I can help you plan complete trips, find destinations, give travel tips, and more!<br/>
+                Just start typing your travel questions or say something like:<br/>
+                <span className="text-blue-600 font-medium">"Plan a 7-day trip to Tokyo"</span>
+              </div>
+            </motion.div>
+          )}
 
           {messages.map(renderMessage)}
 

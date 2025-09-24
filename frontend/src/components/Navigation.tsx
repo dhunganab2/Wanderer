@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, MessageCircle, User, Compass, Settings, Heart, LogOut, LogIn, UserPlus } from 'lucide-react';
+import { MapPin, MessageCircle, User, Compass, Settings, Heart, LogOut, LogIn, UserPlus, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -23,6 +23,7 @@ const navItems = [
   { icon: Heart, label: 'Matches', path: '/matches' },
   { icon: MapPin, label: 'Map', path: '/map' },
   { icon: MessageCircle, label: 'Messages', path: '/messages' },
+  { icon: Bot, label: 'AI Planner', path: '/ai-travel-planner' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 

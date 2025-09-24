@@ -3,11 +3,19 @@ import { UserModel } from '../models/User.js';
 export const userService = {
   async getUserProfile(userId) {
     try {
-      console.log(`Getting user profile for: ${userId}`);
-      return await UserModel.findById(userId);
+      console.log(`🔍 Getting user profile for: ${userId}`);
+      const user = await UserModel.findById(userId);
+      
+      if (user) {
+        console.log(`✅ Found user profile: ${user.name || 'Unknown'}`);
+        return user;
+      } else {
+        console.log(`❌ No user profile found for: ${userId}`);
+        return null; // Return null instead of fake data
+      }
     } catch (error) {
-      console.error('Error getting user profile:', error);
-      throw error;
+      console.error('❌ Error getting user profile:', error);
+      throw error; // Throw error instead of returning fake data
     }
   },
 

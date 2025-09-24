@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from 'react';
 import type {
   AIChatMessage,
   AIChatState,
-  AIQuickAction,
   AIUserContext
 } from '../types/aiChat';
 import aiTravelService from '../services/aiTravelService';
@@ -14,7 +13,6 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     messages: [],
     isLoading: false,
     error: null,
-    quickActions: [],
     currentSessionId: '',
     hasWelcomed: false,
   });
@@ -36,9 +34,6 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
       messages: storedMessages,
       hasWelcomed: storedMessages.length > 0
     }));
-
-    // Load quick actions
-    loadQuickActions();
   }, []);
 
   // Save messages to localStorage whenever messages change
@@ -48,19 +43,6 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     }
   }, [state.messages]);
 
-  const loadQuickActions = useCallback(async () => {
-    try {
-      const response = await aiTravelService.getQuickActions();
-      if (response.success && response.data) {
-        setState(prev => ({
-          ...prev,
-          quickActions: response.data!
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to load quick actions:', error);
-    }
-  }, []);
 
   const addMessage = useCallback((message: Omit<AIChatMessage, 'id'>) => {
     const newMessage: AIChatMessage = {
@@ -113,7 +95,14 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     });
 
     try {
-      const response = await aiTravelService.sendMessage(content.trim(), userContext);
+      // Enhance user context with user ID for proper WebSocket communication
+      const enhancedUserContext = {
+        ...userContext,
+        userId: userContext?.userId || 'anonymous_user',
+        currentUser: userContext?.userId || 'anonymous_user'
+      };
+      
+      const response = await aiTravelService.sendMessage(content.trim(), enhancedUserContext);
 
       // Remove typing indicator
       removeMessage(typingMessageId);
@@ -124,6 +113,8 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
           content: response.data.message,
           role: 'assistant',
           timestamp: response.data.timestamp,
+          type: response.data.type || 'chat',
+          metadata: response.data.metadata,
         });
       } else {
         // Add error message
@@ -173,23 +164,19 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     }
   }, [state.hasWelcomed, state.isLoading, userContext, addMessage]);
 
-  const sendQuickAction = useCallback(async (action: AIQuickAction) => {
-    await sendMessage(action.prompt);
-  }, [sendMessage]);
 
   const toggleChat = useCallback(() => {
     setState(prev => {
-      const newIsOpen = !prev.isOpen;
+      const willOpen = !prev.isOpen;
 
-      // Send welcome message when opening for the first time
-      if (newIsOpen && !prev.hasWelcomed && prev.messages.length === 0) {
-        // Use setTimeout to ensure state update completes first
-        setTimeout(() => sendWelcomeMessage(), 100);
+      // Send welcome message when opening chat for the first time
+      if (willOpen && !prev.hasWelcomed) {
+        setTimeout(() => sendWelcomeMessage(), 500);
       }
 
       return {
         ...prev,
-        isOpen: newIsOpen,
+        isOpen: willOpen,
         isMinimized: false,
       };
     });
@@ -214,7 +201,7 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
 
-      await aiTravelService.clearConversation();
+      await aiTravelService.clearConversation(userContext);
       aiTravelService.clearStoredMessages();
 
       setState(prev => ({
@@ -245,7 +232,7 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
 
     // Actions
     sendMessage,
-    sendQuickAction,
+    sendWelcomeMessage,
     toggleChat,
     minimizeChat,
     maximizeChat,

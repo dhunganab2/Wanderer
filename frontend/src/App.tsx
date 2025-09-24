@@ -16,6 +16,7 @@ import Messages from "./pages/Messages";
 import EnhancedMessages from "./pages/EnhancedMessages";
 import Map from "./pages/Map";
 import Matches from "./pages/Matches";
+import AITravelPlanner from "./pages/AITravelPlanner";
 import NotFound from "./pages/NotFound";
 import { ProfileSetupFlow } from "./components/ProfileSetupFlow";
 
@@ -27,7 +28,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Index />} />
@@ -80,6 +81,11 @@ const App = () => (
             <Route path="/map" element={
               <ProtectedRoute>
                 <Map />
+              </ProtectedRoute>
+            } />
+            <Route path="/ai-travel-planner" element={
+              <ProtectedRoute>
+                <AITravelPlanner />
               </ProtectedRoute>
             } />
             

@@ -1,0 +1,16 @@
+{
+  "watch": ["src/**/*.js", "src/**/*.json"],
+  "ignore": [
+    "src/services/*.py",
+    "venv/**",
+    "*.pyc",
+    "__pycache__/**",
+    "node_modules/**",
+    "*.log"
+  ],
+  "ext": "js,json",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": "1000"
+}
