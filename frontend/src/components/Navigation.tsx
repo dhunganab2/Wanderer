@@ -21,7 +21,6 @@ interface NavigationProps {
 const navItems = [
   { icon: Compass, label: 'Discover', path: '/discover' },
   { icon: Heart, label: 'Matches', path: '/matches' },
-  { icon: MapPin, label: 'Map', path: '/map' },
   { icon: MessageCircle, label: 'Messages', path: '/messages' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];
