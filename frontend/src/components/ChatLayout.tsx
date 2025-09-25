@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X } from 'lucide-react';
 import { Button } from './ui/button';
 import ResizableAISidebar from './ResizableAISidebar';
+import { useAuthContext } from './AuthProvider';
 
 interface ChatLayoutContextType {
   isChatOpen: boolean;
@@ -27,10 +28,21 @@ interface ChatLayoutProps {
 
 export const ChatLayout: React.FC<ChatLayoutProps> = ({ children }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const { user } = useAuthContext();
 
   const toggleChat = () => setIsChatOpen(!isChatOpen);
   const openChat = () => setIsChatOpen(true);
   const closeChat = () => setIsChatOpen(false);
+
+  // Create user context for AI chat
+  const userContext = user ? {
+    userId: user.uid,
+    currentUser: user,
+    userProfile: {
+      name: user.displayName || 'Fellow Traveler',
+      email: user.email || undefined,
+    }
+  } : undefined;
 
   const contextValue: ChatLayoutContextType = {
     isChatOpen,
@@ -84,6 +96,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({ children }) => {
                 className="fixed right-0 top-0 h-full w-96 shadow-2xl z-50"
               >
                 <ResizableAISidebar
+                  userContext={userContext}
                   onChatToggle={closeChat}
                 />
               </motion.div>

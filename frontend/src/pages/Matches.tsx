@@ -8,7 +8,8 @@ import {
   Filter,
   Search,
   Clock,
-  Sparkles
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,29 +82,32 @@ export default function Matches() {
     loadData();
   }, [authUser]);
 
-  // Get actual matches from database
+  // Get actual mutual matches from database (only show these in Matches tab)
   const mutualMatches = matches.filter(match => match.status === 'accepted');
   
-  // Get users that were liked but not matched yet
+  // Get users that were liked but not matched yet (show these in Likes Sent tab)
   const likedUserIds = likes.map(like => like.swipedUserId);
 
   // Use users from store
   const availableUsers = users;
   
-  // Get matched user objects
+  // Get matched user objects (only real mutual matches)
   const matchedUserObjects = mutualMatches.map(match => {
     const userId = match.users.find(id => id !== authUser?.uid);
     return availableUsers.find(user => user.id === userId);
   }).filter(Boolean) as User[];
   
-  // Get pending likes (liked but not matched)
+  // Get pending likes (liked but not matched) - these go to "Likes Sent" tab
   const matchedUserIds = mutualMatches.flatMap(match => match.users);
-  const pendingLikes = availableUsers.filter(user => 
-    likedUserIds.includes(user.id) && !matchedUserIds.includes(user.id)
-  );
+  const pendingLikes = availableUsers.filter(user => {
+    const isLiked = likedUserIds.includes(user.id);
+    const isMatched = matchedUserIds.includes(user.id);
+    console.log(`User ${user.name}: liked=${isLiked}, matched=${isMatched}`);
+    return isLiked && !isMatched; // Only show if liked but not matched
+  });
 
   // Debug logging
-  console.log('Matches Debug:', {
+  console.log('🔍 Matches Debug:', {
     totalMatches: matches.length,
     mutualMatches: mutualMatches.length,
     matchedUserObjects: matchedUserObjects.length,
@@ -112,6 +116,26 @@ export default function Matches() {
     availableUsers: availableUsers.length,
     authUser: authUser?.uid
   });
+  
+  console.log('🔍 Raw data:', {
+    'matches': matches.map(m => ({ id: m.id, users: m.users, status: m.status })),
+    'likes': likes.map(l => ({ swipedUserId: l.swipedUserId, type: l.type })),
+    'likedUserIds': likedUserIds,
+    'matchedUserIds': matchedUserIds
+  });
+
+  console.log('🔍 Detailed analysis:');
+  console.log('📊 Total likes from DB:', likes.length);
+  console.log('📊 Total matches from DB:', matches.length);
+  console.log('📊 Mutual matches (status=accepted):', mutualMatches.length);
+  console.log('📊 Users in Matches tab:', matchedUserObjects.length);
+  console.log('📊 Users in Likes Sent tab:', pendingLikes.length);
+  
+  // Check if there are any local store matches interfering
+  const localStoreMatches = useAppStore.getState().matches;
+  if (localStoreMatches && localStoreMatches.length > 0) {
+    console.warn('⚠️ Found local store matches that should be cleared:', localStoreMatches.length);
+  }
 
   const superLikedUserIds = likes
     .filter(like => like.type === 'superlike')
@@ -124,9 +148,25 @@ export default function Matches() {
   );
 
   const handleStartChat = (userId: string) => {
-    // In a real app, this would navigate to chat with that user
     console.log('Starting chat with user:', userId);
-    // You could navigate to /messages with a specific user ID
+    
+    // Find the user to get their details
+    const user = availableUsers.find(u => u.id === userId);
+    if (!user) {
+      console.error('User not found:', userId);
+      return;
+    }
+
+    // Navigate to messages with user info for starting conversation
+    navigate('/messages', { 
+      state: { 
+        startConversationWith: {
+          id: user.id,
+          name: user.name,
+          avatar: user.avatar
+        }
+      }
+    });
   };
 
   const handleViewProfile = (userId: string) => {

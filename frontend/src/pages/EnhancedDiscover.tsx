@@ -15,8 +15,8 @@ import { enhancedUsers } from '@/data/enhancedSampleData';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DebugInfo } from '@/components/DebugInfo';
-import { ChatLayout } from '@/components/ChatLayout';
-import type { User, FilterSettings, MatchRecommendation } from '@/types';
+import type { User, FilterSettings } from '@/types';
+import type { MatchRecommendation } from '@/services/matchingAlgorithm';
 
 export default function EnhancedDiscover() {
   const [viewMode, setViewMode] = useState<'stack' | 'grid'>('stack');
@@ -62,23 +62,61 @@ export default function EnhancedDiscover() {
         
         let users: User[] = [];
         
-        // Always use enhanced users since Firebase has permission issues
-        console.log('Enhanced users available:', enhancedUsers.length);
+        console.log('🔍 Loading discovery users...');
         console.log('Auth user ID:', authUser.uid);
-        console.log('Swiped user IDs:', swipedUserIds);
+        console.log('Swiped user IDs:', swipedUserIds.length);
+        console.log('Discovery mode:', discoveryMode);
         
-        // Filter out the current user and already swiped users
-        users = enhancedUsers.filter(user => {
-          const isNotCurrentUser = user.id !== authUser.uid;
-          const notSwiped = !swipedUserIds.includes(user.id);
-          console.log(`User ${user.id}: isNotCurrentUser=${isNotCurrentUser}, notSwiped=${notSwiped}`);
-          return isNotCurrentUser && notSwiped;
-        });
+        try {
+          // First try to load from Firebase
+          console.log('🔥 Attempting to load users from Firebase...');
+          
+          switch (discoveryMode) {
+            case 'algorithm':
+              if (currentUser) {
+                users = await userService.getEnhancedDiscoveryUsers(authUser.uid, swipedUserIds, filters, 150);
+              } else {
+                users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+              }
+              break;
+              
+            case 'location':
+              if (userLocation) {
+                users = await userService.getLocationBasedUsers(authUser.uid, userLocation, filters.maxDistance, swipedUserIds);
+              } else {
+                users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+              }
+              break;
+              
+            case 'random':
+            default:
+              users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+              break;
+          }
+          
+          console.log('✅ Successfully loaded users from Firebase:', users.length);
+          
+          // If Firebase returns no users, fall back to enhanced sample data
+          if (users.length === 0) {
+            console.log('⚠️ No users from Firebase, falling back to enhanced sample data');
+            throw new Error('No users found in Firebase');
+          }
+          
+        } catch (firebaseError) {
+          console.warn('❌ Firebase loading failed, using enhanced sample data:', firebaseError);
+          
+          // Fallback to enhanced sample data
+          users = enhancedUsers.filter(user => {
+            const isNotCurrentUser = user.id !== authUser.uid;
+            const notSwiped = !swipedUserIds.includes(user.id);
+            return isNotCurrentUser && notSwiped;
+          });
+        }
         
-        // Limit to 20 users for better performance
-        users = users.slice(0, 20);
+        // Keep all available users for better discovery experience
+        console.log('📊 Users before any limits:', users.length);
         
-        console.log('Loaded users:', users.length, 'Swiped users:', swipedUserIds.length);
+        console.log('📊 Final user count:', users.length);
 
         // Always store users in global state for Matches page
         setUsers(users);
@@ -88,15 +126,21 @@ export default function EnhancedDiscover() {
         if (currentUser && users.length > 0) {
           const recommendations = matchingAlgorithm.findMatches(currentUser, users, filters, users.length);
           setMatchRecommendations(recommendations);
+          console.log('🎯 Generated recommendations:', recommendations.length);
         }
+        
       } catch (error) {
-        console.error('Error loading discovery users:', error);
-        // Fallback to sample users
+        console.error('❌ Error in loadDiscoveryUsers:', error);
+        
+        // Final fallback to sample users
         const fallbackUsers = enhancedUsers.filter(user => 
           user.id !== authUser.uid && !swipeHistory.map(s => s.userId).includes(user.id)
-        ).slice(0, 20);
+        );
+        console.log('🔄 Fallback users available:', fallbackUsers.length);
+        
         setUsers(fallbackUsers);
         setDiscoveryUsers(fallbackUsers);
+        console.log('🔄 Using fallback users:', fallbackUsers.length);
       } finally {
         setLoadingUsers(false);
       }
@@ -146,10 +190,11 @@ export default function EnhancedDiscover() {
     }
     
     try {
-      console.log('Liked user:', userId);
+      console.log('🔥 Liked user:', userId, 'by user:', authUser.uid);
       
       // Record swipe in local store
       swipeUser({ type: 'like', userId, timestamp: new Date().toISOString() });
+      console.log('✅ Swipe recorded in local store');
       
       // Record swipe in Firebase
       await matchingService.recordSwipe({
@@ -157,46 +202,21 @@ export default function EnhancedDiscover() {
         userId: authUser.uid,
         swipedUserId: userId
       });
+      console.log('✅ Swipe recorded in Firebase');
       
-      // Always create a match for demo purposes (100% match rate)
+      // Just show like sent message - don't check for matches immediately
       const user = filteredUsers.find(u => u.id === userId);
       if (user) {
-        console.log('Creating match for user:', user.name, user.id);
-        
-        // Always create match in local store (Firebase will be handled separately)
-        const newMatch = {
-          id: `match_${Date.now()}`,
-          users: [authUser.uid, userId],
-          matchedAt: new Date().toISOString(),
-          status: 'accepted' as const,
-          commonInterests: user.interests?.slice(0, 3) || ['Travel', 'Adventure'], // Get first 3 interests
-          compatibilityScore: Math.floor(Math.random() * 40) + 60 // 60-100%
-        };
-        
-        console.log('Adding match to store:', newMatch);
-        addMatch(newMatch);
-        
-        // Try to create match in Firebase (but don't fail if it doesn't work)
-        try {
-          await matchingService.checkForMatch(authUser.uid, userId);
-          console.log('Match created in Firebase successfully');
-        } catch (firebaseError) {
-          console.warn('Firebase match creation failed, but local match created:', firebaseError);
-        }
-        
-        setMatchedUser(user);
-        setShowMatchNotification(true);
-        toast.success(`It's a match with ${user.name}! 🎉`);
-        
-        // Auto-hide notification after 3 seconds
-        setTimeout(() => {
-          setShowMatchNotification(false);
-          setMatchedUser(null);
-        }, 3000);
+        console.log('👍 Like sent to user:', user.name, user.id);
+        toast.success(`Like sent to ${user.name}!`);
+        console.log('ℹ️ Like recorded - they will see this in their discovery and can like back to create a match');
+      } else {
+        console.warn('⚠️ User not found in filteredUsers:', userId);
+        toast.success(`Like sent!`);
       }
       
     } catch (error) {
-      console.error('Error liking user:', error);
+      console.error('❌ Error liking user:', error);
       toast.error('Failed to like user. Please try again.');
     }
     
@@ -212,10 +232,11 @@ export default function EnhancedDiscover() {
     }
     
     try {
-      console.log('Passed user:', userId);
+      console.log('❌ Passed user:', userId, 'by user:', authUser.uid);
       
       // Record swipe in local store
       swipeUser({ type: 'pass', userId, timestamp: new Date().toISOString() });
+      console.log('✅ Pass recorded in local store');
       
       // Record swipe in Firebase
       await matchingService.recordSwipe({
@@ -223,9 +244,10 @@ export default function EnhancedDiscover() {
         userId: authUser.uid,
         swipedUserId: userId
       });
+      console.log('✅ Pass recorded in Firebase');
       
     } catch (error) {
-      console.error('Error passing user:', error);
+      console.error('❌ Error passing user:', error);
       toast.error('Failed to pass user. Please try again.');
     }
     
@@ -296,8 +318,8 @@ export default function EnhancedDiscover() {
   const handleReset = () => {
     setCurrentCardIndex(0);
     resetSwipeHistory();
-    // Reload users after resetting swipe history
-    loadDiscoveryUsers();
+    // Trigger useEffect to reload users after resetting swipe history
+    setLoadingUsers(true);
   };
 
   const handleApplyFilters = (newFilters: FilterSettings) => {
@@ -332,8 +354,7 @@ export default function EnhancedDiscover() {
   const currentCompatibility = getCurrentCardCompatibility();
 
   return (
-    <ChatLayout>
-      <div className="h-full bg-background overflow-y-auto">
+    <div className="h-full bg-background overflow-y-auto">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
@@ -352,6 +373,7 @@ export default function EnhancedDiscover() {
                 </div>
               </div>
             )}
+            
           </div>
 
           {/* Enhanced Discovery Mode Selector with View Controls */}
@@ -527,7 +549,7 @@ export default function EnhancedDiscover() {
                       <RotateCcw className="w-4 h-4" />
                       See Again
                     </Button>
-                    <Button variant="outline" onClick={() => loadDiscoveryUsers()} className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setLoadingUsers(true)} className="flex items-center gap-2">
                       <Users className="w-4 h-4" />
                       Reload Users
                     </Button>
@@ -543,10 +565,17 @@ export default function EnhancedDiscover() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredUsers.map((user, index) => {
                 const recommendation = matchRecommendations.find(rec => rec.user.id === user.id);
+                const isLiked = swipeHistory.some(swipe => swipe.userId === user.id && swipe.type === 'like');
+                const isPassed = swipeHistory.some(swipe => swipe.userId === user.id && swipe.type === 'pass');
+                
                 return (
                   <div 
                     key={user.id}
-                    className="animate-fade-up"
+                    className={cn(
+                      "animate-fade-up relative",
+                      isLiked && "ring-2 ring-green-500/50",
+                      isPassed && "opacity-50"
+                    )}
                     style={{ animationDelay: `${index * 100}ms` }}
                   >
                     <TravelCard
@@ -556,6 +585,19 @@ export default function EnhancedDiscover() {
                       onPass={handlePass}
                       className="w-full"
                     />
+                    
+                    {/* Liked/Passed Indicator */}
+                    {isLiked && (
+                      <div className="absolute top-2 right-2 bg-green-500 text-white p-2 rounded-full">
+                        <Heart className="w-4 h-4" fill="currentColor" />
+                      </div>
+                    )}
+                    {isPassed && (
+                      <div className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full">
+                        <X className="w-4 h-4" />
+                      </div>
+                    )}
+                    
                     {recommendation && (
                       <div className="mt-2 p-2 rounded-lg" style={{backgroundColor: 'hsl(var(--muted) / 0.5)'}}>
                         <div className="flex items-center justify-between text-sm">
@@ -690,7 +732,6 @@ export default function EnhancedDiscover() {
 
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
-      </div>
-    </ChatLayout>
+    </div>
   );
 }

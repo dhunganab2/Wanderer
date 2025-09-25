@@ -19,6 +19,9 @@ import {
   Star,
   Flag
 } from 'lucide-react';
+import { MessageStatusIcon } from '@/components/ui/MessageStatusIcon';
+import { MessageSkeleton, ConversationSkeleton } from '@/components/ui/MessageSkeleton';
+import { formatMessageTime, getMessageStatus, formatUnreadCount } from '@/utils/messageUtils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -30,10 +33,11 @@ import { toast } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import type { User, Message, Conversation } from '@/types';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 function EnhancedMessagesContent() {
   const { authUser } = useUserProfile();
+  const location = useLocation();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -42,22 +46,113 @@ function EnhancedMessagesContent() {
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    if (selectedConversation) {
+      scrollToBottom();
+    }
+  }, [selectedConversation]);
+
+  // Helper function to get the other participant (not the current user)
+  const getOtherParticipant = (conversation: Conversation): User | null => {
+    if (!conversation.participants || !authUser?.uid) return null;
+    
+    return conversation.participants.find(participant => {
+      const participantId = typeof participant === 'string' ? participant : participant.id;
+      return participantId !== authUser.uid;
+    }) as User || null;
+  };
+
   // Subscribe to real conversations for the current user
   useEffect(() => {
     if (!authUser?.uid) return;
+
+    console.log('🔄 Loading conversations from backend for user:', authUser.uid);
+    setIsLoadingConversations(true);
+
     const unsubscribe = messagingService.subscribeToConversations(authUser.uid, (list) => {
+      console.log('📋 Received conversations from backend:', list?.length || 0);
       setConversations(list || []);
+      setIsLoadingConversations(false);
     });
+
+    // Listen for real-time message updates to refresh conversations
+    messagingService.onMessage((message) => {
+      console.log('🔄 New message received, refreshing conversations');
+      // Trigger a conversation refresh when a new message arrives
+      setTimeout(() => {
+        const refreshUnsubscribe = messagingService.subscribeToConversations(authUser.uid, (refreshedList) => {
+          console.log('📋 Refreshed conversations after new message:', refreshedList?.length || 0);
+          setConversations(refreshedList || []);
+          if (typeof refreshUnsubscribe === 'function') refreshUnsubscribe();
+        });
+      }, 1000); // Small delay to ensure message is processed
+    });
+
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, [authUser?.uid]);
+
+  // Handle starting new conversation from location state
+  useEffect(() => {
+    const startConversationWith = (location.state as any)?.startConversationWith;
+    if (startConversationWith && authUser?.uid) {
+      console.log('🆕 Starting new conversation with user:', startConversationWith);
+
+      // Create or get existing conversation
+      const createConversation = async () => {
+        try {
+          const conversationId = await messagingService.createOrGetConversation(
+            authUser.uid,
+            startConversationWith.id
+          );
+          
+          console.log('✅ Got conversation ID:', conversationId);
+          
+          // Create conversation object for UI
+          const newConversation: Conversation = {
+            id: conversationId,
+            participants: [startConversationWith as User],
+            unreadCount: 0,
+            lastMessage: null,
+            lastMessageAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          setSelectedConversation(newConversation);
+          setMessages([]);
+          
+          toast.info(`Start chatting with ${startConversationWith.name}!`);
+        } catch (error) {
+          console.error('❌ Error creating conversation:', error);
+          toast.error('Failed to start conversation');
+        }
+      };
+      
+      createConversation();
+
+      // Clear the location state by replacing current history entry
+      window.history.replaceState({}, '', '/messages');
+    }
+  }, [location.state, authUser?.uid]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -67,24 +162,71 @@ function EnhancedMessagesContent() {
   // Load messages when conversation changes
   useEffect(() => {
     if (selectedConversation) {
-      loadMessages(selectedConversation.matchId);
+      console.log('🔄 Loading messages for conversation:', selectedConversation.id);
+      // Clear previous messages
+      setMessages([]);
     }
   }, [selectedConversation]);
 
   // Set up real-time listeners
   useEffect(() => {
-    if (selectedConversation) {
+    if (selectedConversation && authUser?.uid) {
+      // Mark messages as read when conversation is opened
+      const conversationId = selectedConversation.id;
+      console.log('📖 Marking messages as read for conversation:', conversationId);
+      messagingService.markMessagesAsRead(conversationId, authUser.uid);
+      
+      // Join the conversation room for WebSocket events
+      console.log('🔗 Joining conversation:', conversationId);
+      messagingService.joinConversation(conversationId);
+      
       // Listen to messages
+      setIsLoadingMessages(true);
       const unsubscribeMessages = messagingService.subscribeToMessages(
-        selectedConversation.matchId,
+        conversationId,
         (newMessages) => {
+          console.log('📨 Received messages for conversation:', newMessages.length);
           setMessages(newMessages);
+          setIsLoadingMessages(false);
         }
       );
 
+      // Listen to real-time messages via WebSocket
+      messagingService.onMessage((message) => {
+        console.log('Received WebSocket message:', JSON.stringify(message, null, 2));
+        console.log('Current conversation ID:', conversationId);
+        console.log('Message conversationId:', message.conversationId);
+        console.log('Message matchId:', message.matchId);
+        
+        if (message.conversationId === conversationId || 
+            message.matchId === conversationId) {
+          
+          console.log('✅ Message matches current conversation, adding to UI');
+          setMessages(prev => {
+            // Check if message already exists to avoid duplicates
+            const exists = prev.some(m => m.id === message.id);
+            if (!exists) {
+              console.log('Adding new message to UI:', message);
+              const newMessages = [...prev, message].sort((a, b) => 
+                new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+              );
+              
+              // Messages are now persisted in Firebase by the backend
+              
+              return newMessages;
+            } else {
+              console.log('Message already exists, skipping');
+            }
+            return prev;
+          });
+        } else {
+          console.log('❌ Message does not match current conversation, ignoring');
+        }
+      });
+
       // Listen to typing indicators
       messagingService.onTypingIndicator((data) => {
-        if (data.matchId === selectedConversation.matchId) {
+        if (data.matchId === conversationId) {
           if (data.isTyping) {
             setTypingUsers(prev => new Set([...prev, data.userId]));
           } else {
@@ -98,35 +240,38 @@ function EnhancedMessagesContent() {
       });
 
       return () => {
+        // Leave the conversation room
+        messagingService.leaveConversation(conversationId);
         unsubscribeMessages();
       };
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, authUser?.uid]);
 
-  const loadMessages = async (matchId: string) => {
-    try {
-      setIsLoading(true);
-      const loadedMessages = await messagingService.getMessages(matchId);
-      setMessages(loadedMessages);
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      toast.error('Failed to load messages');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Removed loadMessages function - now using subscribeToMessages for real-time updates
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedConversation || !authUser?.uid) return;
     
     try {
       const messageData = {
-        matchId: selectedConversation.matchId || selectedConversation.id,
+        matchId: selectedConversation.id, // Use conversation ID
         senderId: authUser.uid,
         content: newMessage.trim(),
         type: 'text' as const
       };
 
+      // Add message to UI immediately for better UX
+      const tempMessage = {
+        id: `temp_${Date.now()}`,
+        ...messageData,
+        timestamp: new Date().toISOString(),
+        read: false,
+        delivered: false
+      };
+      
+      // Add tempMessage to UI for immediate feedback (optimistic UI)
+      setMessages(prev => [...prev, tempMessage]);
+      
       await messagingService.sendMessage(messageData);
       setNewMessage('');
       
@@ -135,9 +280,97 @@ function EnhancedMessagesContent() {
         typingIndicator.stopTyping(selectedConversation.matchId || selectedConversation.id, authUser.uid);
         setIsTyping(false);
       }
+
+      // After sending message, refresh conversations to show in sidebar
+      console.log('🔄 Refreshing conversations after message send');
+      setTimeout(() => {
+        const refreshUnsubscribe = messagingService.subscribeToConversations(authUser?.uid || '', (refreshedList) => {
+          console.log('📋 Conversations refreshed after message send:', refreshedList?.length || 0);
+          setConversations(refreshedList || []);
+
+          // If this was a temporary conversation, find and select the real one
+          if (selectedConversation.id.startsWith('temp_')) {
+            const realConversation = refreshedList.find(conv => conv.matchId === selectedConversation.matchId);
+            if (realConversation) {
+              console.log('✅ Found real conversation, updating selection:', realConversation.id);
+              setSelectedConversation(realConversation);
+            }
+          }
+
+          if (typeof refreshUnsubscribe === 'function') refreshUnsubscribe();
+        });
+      }, 1000); // Small delay to ensure message is processed and conversation is created
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
+    }
+  };
+
+  // Function to create a real conversation in the backend (database-first approach)
+  const saveTemporaryConversation = async (tempConversation: Conversation, firstMessage: any) => {
+    try {
+      console.log('🔄 Creating conversation in backend:', {
+        matchId: tempConversation.matchId,
+        participants: tempConversation.participants,
+        firstMessage: firstMessage
+      });
+      
+      // Extract participant IDs - ensure both users are included
+      const participantIds = [
+        authUser.uid, // Current user
+        ...tempConversation.participants.map(p => typeof p === 'string' ? p : p.id)
+      ];
+
+      console.log('📤 Sending conversation creation request:', {
+        participants: participantIds,
+        matchId: tempConversation.matchId,
+        initialMessage: firstMessage
+      });
+
+      const conversationData = {
+        participants: participantIds,
+        matchId: tempConversation.matchId,
+        initialMessage: {
+          senderId: firstMessage.senderId,
+          content: firstMessage.content,
+          type: firstMessage.type
+        }
+      };
+
+      // Create the conversation in the backend
+      const response = await fetch('http://localhost:3001/api/messaging/conversations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(conversationData),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Conversation created on backend:', result);
+        
+        // Immediately refresh conversations to show the new one in the sidebar
+        const refreshUnsubscribe = messagingService.subscribeToConversations(authUser?.uid || '', (refreshedList) => {
+          console.log('📋 Conversations refreshed after creation:', refreshedList?.length || 0);
+          setConversations(refreshedList || []);
+
+          // Find and select the newly created conversation
+          const newConversation = refreshedList.find(conv => conv.matchId === tempConversation.matchId);
+          if (newConversation) {
+            setSelectedConversation(newConversation);
+            console.log('✅ Selected newly created conversation:', newConversation.id);
+          }
+
+          if (typeof refreshUnsubscribe === 'function') refreshUnsubscribe();
+        });
+      } else {
+        console.error('❌ Failed to create conversation on backend');
+        throw new Error('Backend conversation creation failed');
+      }
+    } catch (error) {
+      console.error('❌ Error creating conversation:', error);
+      toast.error('Failed to create conversation');
     }
   };
 
@@ -187,7 +420,8 @@ function EnhancedMessagesContent() {
 
   const filteredConversations = conversations.filter(conv => {
     try {
-      const participantName = conv.participants?.[0]?.name?.toLowerCase() || '';
+      const otherParticipant = getOtherParticipant(conv);
+      const participantName = otherParticipant?.name?.toLowerCase() || '';
       const messageContent = conv.lastMessage?.content?.toLowerCase() || '';
       const query = searchQuery.toLowerCase();
       
@@ -198,34 +432,11 @@ function EnhancedMessagesContent() {
     }
   });
 
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffInHours = Math.abs(now.getTime() - date.getTime()) / (1000 * 60 * 60);
-    
-    if (diffInHours < 24) {
-      return date.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        minute: '2-digit', 
-        hour12: true 
-      });
-    } else if (diffInHours < 168) { // Less than a week
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
-    } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric' 
-      });
-    }
-  };
+  // Debug: Log conversations state
+  console.log('🔍 Current conversations state:', conversations);
+  console.log('🔍 Filtered conversations:', filteredConversations);
 
-  const getMessageStatus = (message: Message) => {
-    if (message.read) {
-      return <CheckCheck className="w-3 h-3 text-blue-500" />;
-    } else {
-      return <Check className="w-3 h-3 text-muted-foreground" />;
-    }
-  };
+
 
   const emojis = ['😀', '😂', '😍', '🥰', '😘', '🤔', '😎', '🤗', '👍', '👎', '❤️', '🔥', '✨', '🎉', '👏', '🙌'];
 
@@ -265,74 +476,87 @@ function EnhancedMessagesContent() {
                   </div>
                   <p className="text-muted-foreground text-lg font-medium">No conversations yet</p>
                   <p className="text-muted-foreground text-sm mt-2">Start connecting with fellow travelers!</p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Debug: Total conversations: {conversations.length}, Filtered: {filteredConversations.length}
+                  </p>
                 </div>
               </div>
-            ) : (
-              filteredConversations.map((conversation, index) => (
-              <div
-                key={conversation.id}
-                onClick={() => setSelectedConversation(conversation)}
-                className={cn(
-                  "p-5 border-b border-border/20 cursor-pointer transition-all duration-300 hover:bg-gradient-to-r hover:from-sunrise-coral/5 hover:to-transparent hover:shadow-soft message-card",
-                  selectedConversation?.id === conversation.id && "bg-gradient-to-r from-sunrise-coral/10 to-warm-amber/5 border-l-4 border-l-sunrise-coral shadow-medium"
-                )}
-                style={{
-                  animationDelay: `${index * 50}ms`
-                }}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="relative group">
-                    <Link
-                      to={`/profile/${(conversation.participants?.[0] as any)?.id || conversation.participants?.[0]}`}
-                      className="block"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Avatar className="w-14 h-14 ring-2 ring-warm-gray-200 group-hover:ring-sunrise-coral/50 transition-all duration-300">
-                        <AvatarImage src={(conversation.participants?.[0] as any)?.avatar} className="group-hover:scale-110 transition-transform duration-300" />
-                        <AvatarFallback className="bg-gradient-sunrise text-white font-semibold text-lg">
-                          {(conversation.participants?.[0] as any)?.name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                    </Link>
-                    {conversation.isOnline && (
-                      <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-forest-green border-3 border-background rounded-full shadow-medium animate-pulse" />
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <Link
-                        to={`/profile/${(conversation.participants?.[0] as any)?.id || conversation.participants?.[0]}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-semibold text-foreground truncate hover:underline"
-                      >
-                        {(conversation.participants?.[0] as any)?.name}
-                      </Link>
-                      <span className="text-xs text-muted-foreground">
-                        {conversation.lastMessage && formatTime(conversation.lastMessage.timestamp)}
-                      </span>
-                    </div>
-                    
-                    <p className="text-sm text-muted-foreground truncate mb-2">
-                      {conversation.lastMessage?.content || 'No messages yet'}
-                    </p>
-                    
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="w-3 h-3" />
-                        {conversation.participants?.[0]?.nextDestination}
-                      </div>
-                      
-                      {conversation.unreadCount > 0 && (
-                        <Badge className="bg-gradient-sunrise text-white text-xs px-3 py-1 rounded-full shadow-medium animate-bounce-gentle">
-                          {conversation.unreadCount}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+            ) : isLoadingConversations ? (
+              // Show skeleton loaders while conversations are loading
+              Array.from({ length: 3 }).map((_, index) => (
+                <ConversationSkeleton key={`skeleton-${index}`} />
               ))
+            ) : (
+              filteredConversations.map((conversation, index) => {
+                const otherParticipant = getOtherParticipant(conversation);
+                const participantId = otherParticipant?.id || conversation.participants?.[0]?.id || conversation.participants?.[0];
+
+                return (
+                  <div
+                    key={conversation.id}
+                    onClick={() => setSelectedConversation(conversation)}
+                    className={cn(
+                      "p-5 border-b border-border/20 cursor-pointer transition-all duration-300 hover:bg-gradient-to-r hover:from-sunrise-coral/5 hover:to-transparent hover:shadow-soft message-card",
+                      selectedConversation?.id === conversation.id && "bg-gradient-to-r from-sunrise-coral/10 to-warm-amber/5 border-l-4 border-l-sunrise-coral shadow-medium"
+                    )}
+                    style={{
+                      animationDelay: `${index * 50}ms`
+                    }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="relative group">
+                        <Link
+                          to={`/profile/${participantId}`}
+                          className="block"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Avatar className="w-14 h-14 ring-2 ring-warm-gray-200 group-hover:ring-sunrise-coral/50 transition-all duration-300">
+                            <AvatarImage src={otherParticipant?.avatar} className="group-hover:scale-110 transition-transform duration-300" />
+                            <AvatarFallback className="bg-gradient-sunrise text-white font-semibold text-lg">
+                              {otherParticipant?.name?.[0] || 'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                        </Link>
+                        {conversation.isOnline && (
+                          <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-forest-green border-3 border-background rounded-full shadow-medium animate-pulse" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <Link
+                            to={`/profile/${participantId}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-semibold text-foreground truncate hover:underline"
+                          >
+                            {otherParticipant?.name || 'Unknown User'}
+                          </Link>
+                          <span className="text-xs text-muted-foreground">
+                            {conversation.lastMessageAt && formatMessageTime(conversation.lastMessageAt)}
+                          </span>
+                        </div>
+
+                        <p className="text-sm text-muted-foreground truncate mb-2">
+                          {conversation.lastMessage?.content || 'Start a conversation!'}
+                        </p>
+
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="w-3 h-3" />
+                            {otherParticipant?.nextDestination || 'Exploring'}
+                          </div>
+
+                          {conversation.unreadCount > 0 && (
+                            <Badge className="bg-gradient-sunrise text-white text-xs px-3 py-1 rounded-full shadow-medium animate-bounce-gentle">
+                              {conversation.unreadCount}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -346,8 +570,8 @@ function EnhancedMessagesContent() {
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Avatar className="w-10 h-10">
-                      <AvatarImage src={selectedConversation.participants?.[0]?.avatar} />
-                      <AvatarFallback>{selectedConversation.participants?.[0]?.name?.[0]}</AvatarFallback>
+                      <AvatarImage src={getOtherParticipant(selectedConversation)?.avatar} />
+                      <AvatarFallback>{getOtherParticipant(selectedConversation)?.name?.[0]}</AvatarFallback>
                     </Avatar>
                     {selectedConversation.isOnline && (
                       <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-background rounded-full" />
@@ -356,14 +580,14 @@ function EnhancedMessagesContent() {
                   
                   <div>
                     <h2 className="font-semibold text-foreground">
-                      {selectedConversation.participants?.[0]?.name}
+                      {getOtherParticipant(selectedConversation)?.name}
                     </h2>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <MapPin className="w-3 h-3" />
-                      {selectedConversation.participants?.[0]?.nextDestination}
+                      {getOtherParticipant(selectedConversation)?.nextDestination}
                       <span>•</span>
                       <Calendar className="w-3 h-3" />
-                      {selectedConversation.participants?.[0]?.travelDates}
+                      {getOtherParticipant(selectedConversation)?.travelDates}
                     </div>
                   </div>
                 </div>
@@ -387,61 +611,90 @@ function EnhancedMessagesContent() {
                   <div className="flex justify-center items-center h-32">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                   </div>
+                ) : isLoadingMessages ? (
+                  // Show skeleton loaders while messages are loading
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <MessageSkeleton key={`message-skeleton-${index}`} isOwn={index % 3 === 0} />
+                  ))
                 ) : (
                   <>
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={cn(
-                          "flex",
-                          message.senderId === 'current-user-id' ? "justify-end" : "justify-start"
-                        )}
-                      >
+                    {messages.map((message) => {
+                      const isOwnMessage = message.senderId === authUser?.uid;
+                      const otherParticipant = getOtherParticipant(selectedConversation);
+                      const messageStatus = getMessageStatus(message, isOwnMessage);
+                      
+                      return (
                         <div
+                          key={message.id}
                           className={cn(
-                            "max-w-xs lg:max-w-md px-4 py-2 rounded-2xl",
-                            message.senderId === 'current-user-id'
-                              ? "bg-primary text-primary-foreground rounded-br-md"
-                              : "bg-muted text-foreground rounded-bl-md"
+                            "flex flex-col mb-4",
+                            isOwnMessage ? "items-end" : "items-start"
                           )}
                         >
-                          <p className="text-sm">{message.content}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <p className={cn(
-                              "text-xs",
-                              message.senderId === 'current-user-id' 
-                                ? "text-primary-foreground/70" 
-                                : "text-muted-foreground"
-                            )}>
-                              {formatTime(message.timestamp)}
-                            </p>
-                            {message.senderId === 'current-user-id' && (
-                              <div className="ml-2">
-                                {getMessageStatus(message)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    
-                    {/* Typing Indicator */}
-                    {typingUsers.size > 0 && (
-                      <div className="flex justify-start">
-                        <div className="bg-muted text-foreground rounded-2xl rounded-bl-md px-4 py-2">
-                          <div className="flex items-center gap-1">
-                            <div className="flex gap-1">
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                          {/* Sender Name */}
+                          {!isOwnMessage && (
+                            <div className="text-xs text-muted-foreground mb-1 px-2">
+                              {otherParticipant?.name || 'Unknown User'}
                             </div>
-                            <span className="text-xs text-muted-foreground ml-2">
-                              {Array.from(typingUsers).join(', ')} typing...
-                            </span>
+                          )}
+                          
+                          {/* Message Bubble */}
+                          <div
+                            className={cn(
+                              "max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm",
+                              isOwnMessage
+                                ? "bg-gradient-sunrise text-white rounded-br-md"
+                                : "bg-white/10 backdrop-blur-sm text-white rounded-bl-md border border-white/20"
+                            )}
+                          >
+                            <p className="text-sm leading-relaxed">{message.content}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <p className={cn(
+                                "text-xs",
+                                isOwnMessage 
+                                  ? "text-white/80" 
+                                  : "text-white/60"
+                              )}>
+                                {formatMessageTime(message.timestamp)}
+                              </p>
+                              {isOwnMessage && (
+                                <MessageStatusIcon 
+                                  status={messageStatus}
+                                  className="ml-2 w-4 h-4"
+                                />
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
+                    
+                    {/* Auto-scroll target */}
+                    <div ref={messagesEndRef} />
+                    
+                    {/* Typing Indicator - Only show when OTHER users are typing */}
+                    {(() => {
+                      const otherUsersTyping = Array.from(typingUsers).filter(userId => userId !== authUser?.uid);
+                      const otherParticipant = getOtherParticipant(selectedConversation);
+                      
+                      return otherUsersTyping.length > 0 && (
+                        <div className="flex flex-col items-start mb-4">
+                          <div className="text-xs text-muted-foreground mb-1 px-2">
+                            {otherParticipant?.name || 'Someone'}
+                          </div>
+                          <div className="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="flex gap-1">
+                                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
+                                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                              </div>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">typing...</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     
                     <div ref={messagesEndRef} />
                   </>

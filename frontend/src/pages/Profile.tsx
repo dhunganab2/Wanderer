@@ -32,8 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
-import { ChatLayout } from '@/components/ChatLayout';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { userService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
@@ -45,8 +44,9 @@ import { toast } from 'sonner';
 import type { User as UserType, TravelStyle } from '@/types';
 
 export default function Profile() {
-  const { user, updateUserProfile, loading, error, setUser } = useUserProfile();
+  const { user, updateUserProfile, loading, error, setUser, authUser } = useUserProfile();
   const { userId } = useParams();
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<UserType | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -59,6 +59,10 @@ export default function Profile() {
   // Use viewed user (route param) or fallback to current auth user
   const [viewedUser, setViewedUser] = useState<UserType | null>(null);
   const currentUser = viewedUser || user || sampleUsers[0];
+  
+  // Check if viewing own profile
+  const isOwnProfile = !userId || (authUser && userId === authUser.uid) || (!userId && user);
+  const isViewingOthersProfile = userId && authUser && userId !== authUser.uid;
 
   // Load profile by route param (view other user's profile) or use self
   useEffect(() => {
@@ -67,13 +71,13 @@ export default function Profile() {
         const u = await userService.getUserProfile(userId);
         if (u) {
           setViewedUser(u);
-          setEditForm(u);
+          setEditForm(isOwnProfile ? u : null); // Only set edit form if it's own profile
           return;
         }
       }
       if (user) {
         setViewedUser(user);
-        setEditForm(user);
+        setEditForm(isOwnProfile ? user : null); // Only set edit form if it's own profile
       }
     };
     load();
@@ -266,8 +270,8 @@ export default function Profile() {
   };
 
   const handleSave = async () => {
-    if (!editForm) {
-      console.log('Profile Debug - No editForm, cannot save');
+    if (!editForm || !isOwnProfile) {
+      console.log('Profile Debug - No editForm or not own profile, cannot save');
       return;
     }
     
@@ -305,14 +309,36 @@ export default function Profile() {
   };
 
   const handleAvatarClick = () => {
-    if (isEditing) {
+    if (isEditing && isOwnProfile) {
       avatarInputRef.current?.click();
     }
   };
 
   const handleCoverClick = () => {
-    if (isEditing) {
+    if (isEditing && isOwnProfile) {
       coverInputRef.current?.click();
+    }
+  };
+
+  const handleMessageUser = async () => {
+    if (!authUser || !currentUser || isOwnProfile) return;
+    
+    try {
+      // Navigate to messages with the user's info
+      // We'll pass the user info as state so the messages page can start a conversation
+      navigate('/messages', { 
+        state: { 
+          startConversationWith: {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar
+          }
+        }
+      });
+      toast.success(`Starting conversation with ${currentUser.name}`);
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+      toast.error('Failed to start conversation');
     }
   };
 
@@ -328,8 +354,7 @@ export default function Profile() {
   }
 
   return (
-    <ChatLayout>
-      <div className="h-full bg-background overflow-y-auto">
+    <div className="h-full bg-background overflow-y-auto">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
@@ -359,7 +384,7 @@ export default function Profile() {
                     )}
 
             {/* Cover Upload Overlay */}
-            {isEditing && (
+            {isEditing && isOwnProfile && (
               <div
                 className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-all duration-300 cursor-pointer backdrop-blur-sm"
                 style={{backgroundColor: 'rgba(0, 0, 0, 0.5)'}}
@@ -398,7 +423,7 @@ export default function Profile() {
               <div className="absolute bottom-2 right-2 w-6 h-6 bg-forest-green border-4 border-background rounded-full shadow-medium animate-pulse"></div>
 
               {/* Avatar Upload Overlay */}
-              {isEditing && (
+              {isEditing && isOwnProfile && (
                 <div
                   className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-all duration-300 cursor-pointer backdrop-blur-sm"
                   style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}
@@ -418,6 +443,17 @@ export default function Profile() {
 
         {/* Profile Actions */}
         <div className="absolute top-6 right-6 flex gap-3 animate-fade-in" style={{animationDelay: '0.4s'}}>
+          {isViewingOthersProfile && (
+            <Button
+              onClick={handleMessageUser}
+              variant="hero"
+              size="sm"
+              className="shadow-medium hover:shadow-glow backdrop-blur-xl"
+            >
+              <MessageCircle className="w-4 h-4 mr-2" />
+              Message
+            </Button>
+          )}
           <Button
             variant="glass"
             size="icon"
@@ -441,7 +477,7 @@ export default function Profile() {
           <div className="mt-8 mb-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                     <div className="flex-1">
-                      {isEditing ? (
+                      {isEditing && isOwnProfile ? (
                   <div className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                               <Input
@@ -493,7 +529,7 @@ export default function Profile() {
                     </div>
 
             <div className="flex gap-2">
-              {isEditing ? (
+              {isEditing && isOwnProfile ? (
                         <div className="flex gap-3">
                           <Button
                             variant="outline"
@@ -520,7 +556,7 @@ export default function Profile() {
                             Save Changes
                           </Button>
                         </div>
-              ) : (
+              ) : isOwnProfile ? (
                 <Button
                   onClick={() => setIsEditing(true)}
                   variant="premium"
@@ -529,6 +565,16 @@ export default function Profile() {
                 >
                   <Edit3 className="w-5 h-5 mr-2" />
                   Edit Profile
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleMessageUser}
+                  variant="hero"
+                  size="lg"
+                  className="shadow-medium hover:shadow-glow"
+                >
+                  <MessageCircle className="w-5 h-5 mr-2" />
+                  Message {currentUser.name}
                 </Button>
                       )}
                     </div>
@@ -582,7 +628,7 @@ export default function Profile() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {isEditing ? (
+                  {isEditing && isOwnProfile ? (
                     <div className="space-y-4">
                       <Textarea
                         value={editForm?.bio || ''}
@@ -614,7 +660,7 @@ export default function Profile() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {isEditing ? (
+                    {isEditing && isOwnProfile ? (
                     <div className="space-y-3">
                         <div className="flex flex-wrap gap-2">
                         {travelStyleOptions.map((style) => (
@@ -666,7 +712,7 @@ export default function Profile() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {isEditing ? (
+                  {isEditing && isOwnProfile ? (
                     <div className="space-y-4">
                       {/* Add New Interest */}
                       <div className="flex gap-2">
@@ -748,7 +794,7 @@ export default function Profile() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {isEditing ? (
+                  {isEditing && isOwnProfile ? (
                     <div className="space-y-3">
                         <Input
                         value={editForm?.nextDestination || ''}
@@ -783,7 +829,7 @@ export default function Profile() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {isEditing ? (
+                  {isEditing && isOwnProfile ? (
                     <Input
                       value={editForm?.location || ''}
                       onChange={(e) => setEditForm(prev => prev ? { ...prev, location: e.target.value } : null)}
@@ -918,11 +964,9 @@ export default function Profile() {
         }}
       />
 
-      </div>
-
       {/* Mobile Navigation */}
       <Navigation className="md:hidden" />
       </div>
-    </ChatLayout>
+    </div>
   );
 }

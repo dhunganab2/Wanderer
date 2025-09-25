@@ -1,17 +1,4 @@
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit,
-  serverTimestamp 
-} from 'firebase/firestore';
+import admin from 'firebase-admin';
 import { db } from '../config/database.js';
 
 export class UserModel {
@@ -20,15 +7,15 @@ export class UserModel {
   // Create user profile
   static async create(userData) {
     try {
-      const userRef = doc(db, this.collection, userData.id);
+      const userRef = db.collection(this.collection).doc(userData.id);
       const userDoc = {
         ...userData,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        lastActive: serverTimestamp()
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString()
       };
       
-      await updateDoc(userRef, userDoc);
+      await userRef.set(userDoc);
       return userData.id;
     } catch (error) {
       console.error('Error creating user:', error);
@@ -39,10 +26,10 @@ export class UserModel {
   // Get user by ID
   static async findById(userId) {
     try {
-      const userRef = doc(db, this.collection, userId);
-      const userSnap = await getDoc(userRef);
+      const userRef = db.collection(this.collection).doc(userId);
+      const userSnap = await userRef.get();
       
-      if (userSnap.exists()) {
+      if (userSnap.exists) {
         return { id: userSnap.id, ...userSnap.data() };
       }
       return null;
@@ -55,11 +42,11 @@ export class UserModel {
   // Update user
   static async update(userId, updates) {
     try {
-      const userRef = doc(db, this.collection, userId);
-      await updateDoc(userRef, {
+      const userRef = db.collection(this.collection).doc(userId);
+      await userRef.update({
         ...updates,
-        updatedAt: serverTimestamp(),
-        lastActive: serverTimestamp()
+        updatedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString()
       });
       return true;
     } catch (error) {
@@ -71,8 +58,8 @@ export class UserModel {
   // Delete user
   static async delete(userId) {
     try {
-      const userRef = doc(db, this.collection, userId);
-      await deleteDoc(userRef);
+      const userRef = db.collection(this.collection).doc(userId);
+      await userRef.delete();
       return true;
     } catch (error) {
       console.error('Error deleting user:', error);
@@ -83,13 +70,11 @@ export class UserModel {
   // Get discovery users (excluding current user and already swiped)
   static async getDiscoveryUsers(currentUserId, swipedUserIds = [], limitCount = 50) {
     try {
-      const usersQuery = query(
-        collection(db, this.collection),
-        where('id', '!=', currentUserId),
-        limit(limitCount)
-      );
+      const usersQuery = db.collection(this.collection)
+        .where('id', '!=', currentUserId)
+        .limit(limitCount);
       
-      const querySnapshot = await getDocs(usersQuery);
+      const querySnapshot = await usersQuery.get();
       const users = querySnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(user => !swipedUserIds.includes(user.id));
@@ -107,8 +92,8 @@ export class UserModel {
       // Note: Firestore doesn't have native geo queries
       // This would need to be implemented with a geohash or similar approach
       // For now, we'll get all users and filter in memory
-      const usersQuery = query(collection(db, this.collection));
-      const querySnapshot = await getDocs(usersQuery);
+      const usersQuery = db.collection(this.collection);
+      const querySnapshot = await usersQuery.get();
       
       const users = querySnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))

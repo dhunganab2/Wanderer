@@ -1,35 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  MessageCircle,
   Send,
   Minimize2,
   Maximize2,
   X,
   RefreshCw,
   Sparkles,
-  MapPin,
-  Plane,
-  Mountain,
-  Camera,
-  Shield,
-  DollarSign
+  Plane
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { cn } from '../lib/utils';
-import type { AIChatProps, AIChatMessage, AIQuickAction } from '../types/aiChat';
+import type { AIChatProps, AIChatMessage } from '../types/aiChat';
 import useAITravelBuddy from '../hooks/useAITravelBuddy';
+import TripPlanDisplay from './TripPlanDisplay';
 
-const quickActionIcons: Record<string, React.ComponentType<any>> = {
-  destination_ideas: MapPin,
-  budget_tips: DollarSign,
-  packing_advice: Plane,
-  local_culture: Camera,
-  safety_tips: Shield,
-  hidden_gems: Mountain,
-};
 
 const AITravelBuddy: React.FC<AIChatProps> = ({
   className,
@@ -40,7 +27,6 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
   onChatToggle,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [showQuickActions, setShowQuickActions] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -50,9 +36,7 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
     messages,
     isLoading,
     error,
-    quickActions,
     sendMessage,
-    sendQuickAction,
     toggleChat,
     minimizeChat,
     maximizeChat,
@@ -82,7 +66,6 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
 
     const message = inputValue.trim();
     setInputValue('');
-    setShowQuickActions(false);
     onMessageSent?.(message);
 
     await sendMessage(message);
@@ -95,15 +78,9 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
     }
   };
 
-  const handleQuickAction = async (action: AIQuickAction) => {
-    setShowQuickActions(false);
-    onMessageSent?.(action.prompt);
-    await sendQuickAction(action);
-  };
 
   const handleNewChat = async () => {
     await clearConversation();
-    setShowQuickActions(true);
     setInputValue('');
   };
 
@@ -129,16 +106,19 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className={cn(
           'flex w-full mb-4',
-          isUser ? 'justify-end' : 'justify-start'
+          message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
         )}
       >
         <div
           className={cn(
-            'max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed',
+            message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'w-full' : 'max-w-[85%]',
+            'rounded-2xl px-3 py-2 text-sm leading-relaxed',
             'shadow-sm',
             isUser
-              ? 'bg-gradient-to-r from-sunrise-coral to-sunrise-coral-dark text-white ml-4'
-              : 'bg-warm-gray-50 text-gray-800 border border-warm-gray-200 mr-4',
+              ? 'bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-white ml-4 shadow-lg'
+              : message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback'
+                ? 'bg-transparent border-none mr-0 px-0 py-0'
+                : 'bg-gradient-to-br from-gray-50 to-white text-gray-800 border border-gray-200 mr-4 shadow-md hover:shadow-lg',
             'transition-all duration-200'
           )}
         >
@@ -151,6 +131,15 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
               </div>
               <span className="text-gray-500 ml-2">WanderBuddy is typing...</span>
             </div>
+          ) : (message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback') ? (
+            <TripPlanDisplay
+              content={message.content}
+              metadata={{
+                ...message.metadata,
+                rawData: message.metadata?.rawData
+              }}
+              className="w-full"
+            />
           ) : (
             <div
               dangerouslySetInnerHTML={{
@@ -177,37 +166,6 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
     );
   };
 
-  const renderQuickActions = () => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.3 }}
-      className="mb-4 space-y-2"
-    >
-      <div className="text-xs text-gray-500 mb-2 text-center">
-        ✨ Quick questions:
-      </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        {quickActions.map((action) => {
-          const IconComponent = quickActionIcons[action.id] || Sparkles;
-          return (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              className="h-auto p-2 flex flex-col items-center space-y-1 text-xs hover:bg-sunrise-coral-soft hover:border-sunrise-coral transition-all duration-200"
-              onClick={() => handleQuickAction(action)}
-              disabled={isLoading}
-            >
-              <IconComponent className="w-3 h-3 text-sunrise-coral" />
-              <span className="text-center leading-tight text-xs">{action.text}</span>
-            </Button>
-          );
-        })}
-      </div>
-    </motion.div>
-  );
 
   if (!isOpen) {
     return (
@@ -226,21 +184,31 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
         <div className="relative">
           <Button
             size="icon"
-            className="w-12 h-12 rounded-full shadow-lg bg-gradient-to-r from-sunrise-coral to-sunrise-coral-dark hover:from-sunrise-coral-dark hover:to-sunrise-coral border-2 border-white/20"
+            className="w-14 h-14 rounded-full shadow-xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 hover:from-blue-600 hover:via-purple-600 hover:to-pink-600 border-2 border-white/30 transition-all duration-300"
           >
-            <MessageCircle className="w-5 h-5 text-white" />
+            <div className="flex flex-col items-center">
+              <Sparkles className="w-4 h-4 text-white mb-0.5" />
+              <span className="text-[10px] text-white font-medium">AI</span>
+            </div>
           </Button>
 
-          {/* Pulse animation for attention */}
-          <div className="absolute inset-0 w-12 h-12 rounded-full bg-gradient-to-r from-sunrise-coral to-sunrise-coral-dark animate-ping opacity-20" />
+          {/* Enhanced pulse animation */}
+          <div className="absolute inset-0 w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 via-purple-400 to-pink-400 animate-ping opacity-30" />
 
-          {/* Notification badge */}
+          {/* Travel-themed floating icons */}
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center"
+            animate={{
+              rotate: [0, 360],
+              scale: [1, 1.1, 1]
+            }}
+            transition={{
+              duration: 4,
+              repeat: Infinity,
+              ease: "linear"
+            }}
+            className="absolute -top-2 -right-2 w-6 h-6 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg"
           >
-            <Sparkles className="w-3 h-3 text-white" />
+            <Plane className="w-3 h-3 text-white" />
           </motion.div>
         </div>
       </motion.div>
@@ -263,15 +231,25 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
       )}
     >
       <Card className="h-full shadow-lg border border-gray-200 bg-white rounded-xl overflow-hidden">
-        {/* Header */}
-        <CardHeader className="flex flex-row items-center justify-between p-3 bg-gradient-to-r from-sunrise-coral to-sunrise-coral-dark text-white">
-          <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-              <Sparkles className="w-3 h-3" />
+        {/* Enhanced Header */}
+        <CardHeader className="flex flex-row items-center justify-between p-3 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 text-white relative overflow-hidden">
+          {/* Background Pattern */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-1 left-2 w-4 h-4 border border-white/30 rounded-full" />
+            <div className="absolute top-4 right-4 w-2 h-2 bg-white/20 rounded-full" />
+            <div className="absolute bottom-2 left-6 w-3 h-3 border border-white/25 rounded-full" />
+            <Plane className="absolute bottom-1 right-2 w-4 h-4 text-white/20" />
+          </div>
+
+          <div className="flex items-center space-x-2 relative z-10">
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <CardTitle className="text-sm font-semibold">WanderBuddy</CardTitle>
+              <CardTitle className="text-sm font-bold">WanderBuddy</CardTitle>
+              <div className="text-xs text-white/80 font-normal">AI Travel Companion</div>
             </div>
+            {isLoading && <RefreshCw className="w-3 h-3 ml-2 animate-spin text-white/80" />}
           </div>
 
           <div className="flex items-center space-x-1">
@@ -314,7 +292,28 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
               <AnimatePresence mode="popLayout">
-                {messages.length === 0 && showQuickActions && renderQuickActions()}
+                {messages.length === 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center py-8"
+                  >
+                    <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="text-lg font-semibold text-gray-800 mb-2">
+                      Hi! I'm WanderBuddy ✈️
+                    </div>
+                    <div className="text-sm text-gray-600 mb-4">
+                      Your AI travel companion powered by multi-agent intelligence
+                    </div>
+                    <div className="text-xs text-gray-500 leading-relaxed">
+                      I can help you plan complete trips, find destinations, give travel tips, and more!<br/>
+                      Just start typing your travel questions or say something like:<br/>
+                      <span className="text-blue-600 font-medium">"Plan a 7-day trip to Tokyo"</span>
+                    </div>
+                  </motion.div>
+                )}
 
                 {messages.map(renderMessage)}
 
