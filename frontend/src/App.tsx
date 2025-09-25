@@ -14,6 +14,7 @@ import EnhancedDiscover from "./pages/EnhancedDiscover";
 import Profile from "./pages/Profile";
 import Messages from "./pages/Messages";
 import EnhancedMessages from "./pages/EnhancedMessages";
+import Map from "./pages/Map";
 import Matches from "./pages/Matches";
 import GlobeDemo from "./pages/GlobeDemo";
 import NotFound from "./pages/NotFound";
@@ -75,6 +76,11 @@ const App = () => (
             <Route path="/messages-old" element={
               <ProtectedRoute>
                 <Messages />
+              </ProtectedRoute>
+            } />
+            <Route path="/map" element={
+              <ProtectedRoute>
+                <Map />
               </ProtectedRoute>
             } />
             <Route path="/globe" element={
