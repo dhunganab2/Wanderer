@@ -8,7 +8,7 @@ import { TravelCard } from '@/components/TravelCard';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useAuthContext } from '@/components/AuthProvider';
 import { sampleUsers } from '@/data/sampleUsers';
-import heroImage from '@/assets/hero-travel-connections.jpg';
+import heroImage from '@/assets/hero-bridge.jpg';
 import gradientBg from '@/assets/gradient-background.jpg';
 
 
@@ -58,8 +58,8 @@ export default function Landing() {
         {/* Enhanced Background with Parallax Effect */}
         <div className="absolute inset-0">
           <img 
-            src={heroImage} 
-            alt="Travelers connecting around the world"
+            src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80" 
+            alt="Mysterious bridge leading to adventure"
             className="w-full h-full object-cover scale-105 animate-float"
           />
           <div className="absolute inset-0 bg-gradient-to-br from-black/50 via-black/30 to-transparent" />
@@ -90,12 +90,12 @@ export default function Landing() {
               Adventure
             </span>
             <br />
-            <span className="text-4xl md:text-6xl lg:text-7xl font-medium text-white/80">
+            <span className="text-4xl md:text-6xl lg:text-7xl font-medium text-white">
               Awaits
             </span>
           </h1>
           
-          <p className="text-xl md:text-2xl lg:text-3xl text-white/90 mb-16 leading-relaxed animate-fade-up max-w-3xl mx-auto font-medium" style={{ animationDelay: '300ms' }}>
+          <p className="text-xl md:text-2xl lg:text-3xl text-white/90 mb-8 leading-relaxed animate-fade-up max-w-3xl mx-auto font-medium" style={{ animationDelay: '300ms' }}>
             Connect with fellow travelers, discover new destinations, and create 
             <span className="text-gradient-sunrise font-semibold"> unforgettable memories</span> together.
           </p>
@@ -114,14 +114,6 @@ export default function Landing() {
                     Find Your Crew
                     <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-1 transition-transform" />
                   </Link>
-                </Button>
-                <Button 
-                  variant="glass" 
-                  size="xl" 
-                  className="text-lg px-10 py-6 h-16 backdrop-blur-xl border-white/30 hover:border-white/50 group"
-                >
-                  <Camera className="w-6 h-6 mr-3 group-hover:animate-pulse-soft" />
-                  Watch Stories
                 </Button>
               </>
             ) : (
@@ -170,13 +162,6 @@ export default function Landing() {
           </div>
         </div>
         
-        {/* Enhanced Scroll Indicator */}
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 animate-bounce-gentle">
-          <div className="w-8 h-12 border-2 border-white/60 rounded-full flex justify-center backdrop-blur-sm">
-            <div className="w-1 h-4 bg-gradient-sunrise rounded-full mt-2 animate-pulse-soft" />
-          </div>
-          <p className="text-white/60 text-xs mt-2 font-medium">Scroll to explore</p>
-        </div>
       </section>
 
       {/* AI Travel Planner Section */}

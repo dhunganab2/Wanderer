@@ -36,11 +36,9 @@ export const ProfileSetupFlow: React.FC = () => {
         travelStyle: data.travelStyle as TravelStyle[],
         nextDestination: data.destinations[0] || 'Not specified',
         travelDates: 'TBD', // This will be updated when user adds specific dates
-        location: 'Location not set', // User will update this
+        location: 'Location not set',
         interests: data.travelStyle, // Using travel styles as initial interests
         photos: data.photo ? [data.photo] : [],
-        // Don't include coordinates field if we don't have the data
-        // coordinates will be undefined and handled by the service
       };
 
       console.log('Creating user profile with data:', userProfileData);

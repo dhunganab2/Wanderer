@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Calendar, Users, Heart, X } from 'lucide-react';
+import { MapPin, Calendar, Users, Heart, X, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { User } from '@/types';
 
@@ -22,11 +22,13 @@ export const TravelCard: React.FC<TravelCardProps> = ({
   variant = 'stack',
   showActions = true
 }) => {
-  const handleSwipe = (direction: 'left' | 'right') => {
+  const handleSwipe = (direction: 'left' | 'right' | 'up') => {
     if (direction === 'right' && onLike) {
       onLike(user.id);
     } else if (direction === 'left' && onPass) {
       onPass(user.id);
+    } else if (direction === 'up' && onSuperLike) {
+      onSuperLike(user.id);
     }
   };
 
@@ -164,6 +166,36 @@ export const TravelCard: React.FC<TravelCardProps> = ({
             </span>
           )}
         </div>
+        
+        {/* Action Buttons - Inside Content Area */}
+        {variant === 'stack' && showActions && (onLike || onPass || onSuperLike) && (
+          <div className="flex justify-center gap-3 pt-4">
+            {onPass && (
+              <button
+                onClick={() => handleSwipe('left')}
+                className="w-14 h-14 rounded-full glass-card-elevated backdrop-blur-xl border border-red-500/30 flex items-center justify-center text-red-500 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-300 hover:scale-110 button-bounce group/btn"
+              >
+                <X className="w-6 h-6 group-hover/btn:rotate-90 transition-transform duration-300" />
+              </button>
+            )}
+            {onSuperLike && (
+              <button
+                onClick={() => handleSwipe('up')}
+                className="w-12 h-12 rounded-full bg-gradient-to-br from-sky-blue to-midnight-blue border border-sky-blue/40 flex items-center justify-center text-white hover:shadow-glow transition-all duration-300 hover:scale-110 button-bounce group/btn"
+              >
+                <Star className="w-5 h-5 group-hover/btn:animate-pulse-soft transition-all duration-300" fill="currentColor" />
+              </button>
+            )}
+            {onLike && (
+              <button
+                onClick={() => handleSwipe('right')}
+                className="w-14 h-14 rounded-full bg-gradient-sunrise border border-white/30 flex items-center justify-center text-white hover:shadow-glow transition-all duration-300 hover:scale-110 button-bounce group/btn"
+              >
+                <Heart className="w-6 h-6 group-hover/btn:scale-110 transition-transform duration-300" />
+              </button>
+            )}
+          </div>
+        )}
         
         {/* Enhanced Hover Effect */}
         <div className="absolute inset-0 rounded-3xl bg-gradient-sunrise/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />

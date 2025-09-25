@@ -328,7 +328,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, clas
           disabled={!canProceed()}
           className="flex items-center gap-2 px-8"
         >
-          {currentStep === 4 ? 'Complete Profile' : 'Continue'}
+          {currentStep === 5 ? 'Complete Profile' : 'Continue'}
           <ArrowRight className="w-4 h-4" />
         </Button>
       </div>

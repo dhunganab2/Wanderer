@@ -39,7 +39,6 @@ class AITravelService {
     // Path to Python travel agent system (use working version)
     this.pythonScriptPath = path.join(__dirname, 'working_travel_agent.py');
     this.pythonExecutable = path.join(__dirname, '..', '..', 'venv', 'bin', 'python');
-
     // System prompt for the AI Travel Buddy
     this.systemPrompt = `You are WanderBuddy, a super chill and enthusiastic AI travel companion for the Wanderer app. You're like that friend who's been everywhere and loves helping people discover amazing places.
 
