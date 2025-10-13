@@ -17,6 +17,7 @@ import EnhancedMessages from "./pages/EnhancedMessages";
 import Matches from "./pages/Matches";
 import AITravelPlanner from "./pages/AITravelPlanner";
 import GlobeDemo from "./pages/GlobeDemo";
+import Map from "./pages/Map";
 import NotFound from "./pages/NotFound";
 import { ProfileSetupFlow } from "./components/ProfileSetupFlow";
 
@@ -81,6 +82,11 @@ const App = () => (
             <Route path="/globe" element={
               <ProtectedRoute>
                 <GlobeDemo />
+              </ProtectedRoute>
+            } />
+            <Route path="/map" element={
+              <ProtectedRoute>
+                <Map />
               </ProtectedRoute>
             } />
             <Route path="/ai-travel-planner" element={
