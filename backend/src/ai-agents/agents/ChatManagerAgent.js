@@ -1139,13 +1139,15 @@ Extract the following information if present in the message:
 - travelers: Array with one of ["solo", "duo", "group"]. If user says "solo", "alone", "by myself" → ["solo"]. If "with friend", "duo" → ["duo"]. If "group", "friends" → ["group"]. If not mentioned → []
 - departureCity: City they're flying from (e.g., "Cincinnati", "New York"). Look for phrases like "from Cincinnati", "flying from", "leaving from"
 - budgetPreference: One of ["Budget", "Mid-range", "Luxury"]. Look for:
-  * "budget", "cheap", "affordable", "budget-friendly", "super budget" → "Budget"
-  * "mid-range", "moderate", "average" → "Mid-range"  
-  * "luxury", "high-end", "premium", "luxurious" → "Luxury"
+  * Dollar amounts under $1000 total budget OR "budget", "cheap", "affordable", "budget-friendly" → "Budget"
+  * Dollar amounts $1000-$3000 total budget OR "mid-range", "moderate", "average" → "Mid-range"  
+  * Dollar amounts over $3000 total budget OR "luxury", "high-end", "premium", "luxurious" → "Luxury"
+  * If user mentions "$500" or any specific amount, categorize it based on the ranges above
+  * IGNORE the dollar amount itself and ONLY return the category (Budget/Mid-range/Luxury)
 
 IMPORTANT: 
 - If user says "just create a trip" or "any island" or similar, infer they want "solo" travel unless they mention companions
-- If user says "super budget friendly", extract as "Budget"
+- If user provides a specific dollar amount like "$500", convert it to the appropriate category ("Budget") - DO NOT store the number
 - Convert all duration formats to "X days" (e.g., "4 days", "5 days")
 
 Return ONLY this JSON format:
@@ -1229,8 +1231,18 @@ Return ONLY this JSON format:
       info.departureCity = departureMatch[1].trim();
     }
 
-    // Budget preference extraction
-    if (/super budget|budget[\s-]friendly|cheap|affordable|budget/i.test(message)) {
+    // Budget preference extraction - convert dollar amounts to categories
+    const budgetMatch = message.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+    if (budgetMatch) {
+      const amount = parseFloat(budgetMatch[1].replace(/,/g, ''));
+      if (amount < 1000) {
+        info.budgetPreference = 'Budget';
+      } else if (amount >= 1000 && amount <= 3000) {
+        info.budgetPreference = 'Mid-range';
+      } else {
+        info.budgetPreference = 'Luxury';
+      }
+    } else if (/super budget|budget[\s-]friendly|cheap|affordable|budget/i.test(message)) {
       info.budgetPreference = 'Budget';
     } else if (/mid[-\s]?range|moderate/i.test(message)) {
       info.budgetPreference = 'Mid-range';
@@ -1366,7 +1378,7 @@ ${missing.length >= 3 ? '3. [Third question]' : ''}"` : ''}`;
       } else if (extractedInfo.destination && extractedInfo.duration && extractedInfo.travelers.length > 0 && missing.includes('departureCity')) {
         contextPrompt += ` Ask where they'll be flying from for their ${extractedInfo.duration} ${extractedInfo.travelers[0]} trip to ${extractedInfo.destination}. Keep it under 25 words and use emojis.`;
       } else if (extractedInfo.destination && extractedInfo.duration && extractedInfo.travelers.length > 0 && extractedInfo.departureCity && missing.includes('budgetPreference')) {
-        contextPrompt += ` Ask about their accommodation budget preference (Budget/Mid-range/Luxury) for their ${extractedInfo.duration} trip to ${extractedInfo.destination}. Keep it under 25 words and use emojis.`;
+        contextPrompt += ` Ask about their accommodation budget preference using ONLY these options: Budget 🎒, Mid-range 🏨, or Luxury ✨ for their ${extractedInfo.duration} trip to ${extractedInfo.destination}. DO NOT ask for dollar amounts. Format exactly like: "What's your accommodation budget? Budget 🎒, Mid-range 🏨, or Luxury ✨?" Keep it under 30 words.`;
       } else {
         contextPrompt += ` Ask for the next missing piece of information: ${missing[0]}. Be encouraging and enthusiastic. Keep it under 30 words and use travel emojis.`;
       }
