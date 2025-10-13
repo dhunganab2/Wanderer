@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import AITravelBuddy from './AITravelBuddy';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAppStore } from '../store/useAppStore';
+import { useAuth } from '../hooks/useAuth';
 import type { AIUserContext } from '../types/aiChat';
 
 interface AITravelBuddyWrapperProps {
@@ -15,6 +16,7 @@ interface AITravelBuddyWrapperProps {
 const AITravelBuddyWrapper: React.FC<AITravelBuddyWrapperProps> = (props) => {
   const { user } = useUserProfile();
   const { bucketList } = useAppStore();
+  const { user: authUser } = useAuth();
 
   // Transform user profile data to AI context format
   const userContext = useMemo((): AIUserContext => {
@@ -29,6 +31,8 @@ const AITravelBuddyWrapper: React.FC<AITravelBuddyWrapperProps> = (props) => {
     }) || [];
 
     return {
+      userId: authUser?.uid,
+      currentUser: authUser?.uid,
       userProfile: {
         name: user.name,
         age: user.age,
@@ -66,7 +70,7 @@ const AITravelBuddyWrapper: React.FC<AITravelBuddyWrapperProps> = (props) => {
       currentLocation: user.location,
       upcomingTrips: user.nextDestination ? [user.nextDestination] : [],
     };
-  }, [user, bucketList]);
+  }, [user, bucketList, authUser?.uid]);
 
   // Don't render AI buddy if user is not authenticated
   if (!user) {

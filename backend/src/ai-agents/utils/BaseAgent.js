@@ -2,7 +2,7 @@
  * Base Agent Class
  * Provides common functionality for all AI agents
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 export default class BaseAgent {
   constructor(name, role, systemPrompt) {
@@ -15,76 +15,36 @@ export default class BaseAgent {
     this.startTime = null;
     this.endTime = null;
 
-    // API Key rotation system
-    this.apiKeys = [
-      process.env.GEMINI_API_KEY,
-      process.env.GEMINI_API_KEY_BACKUP,
-      process.env.GEMINI_API_KEY_BACKUP_2
-    ].filter(key => key);
-
-    this.currentKeyIndex = 0;
-    this.keyUsageCount = new Map();
-    this.maxUsagePerKey = 50;
-    this.exhaustedKeys = new Set();
-    this.keyExhaustionTime = new Map();
+    // Single API Key system
+    this.apiKey = process.env.GEMINI_API_KEY;
     this.callCounter = 0;
+
+    // Debug: Log API key status
+    if (this.apiKey) {
+      const maskedKey = this.apiKey.length > 8 ? this.apiKey.substring(0, 4) + "..." + this.apiKey.substring(this.apiKey.length - 4) : "***";
+      console.log(`🔑 ${this.name}: Using single API key: ${maskedKey}`);
+    } else {
+      console.warn(`⚠️ ${this.name}: No API key configured!`);
+    }
 
     this.initializeGemini();
   }
 
   initializeGemini() {
-    if (this.apiKeys.length === 0) {
-      console.warn(`⚠️ No API keys available for ${this.name}`);
+    if (!this.apiKey) {
+      console.warn(`⚠️ No API key available for ${this.name}`);
       return false;
     }
 
-
-    const currentKey = this.apiKeys[this.currentKeyIndex];
-    this.genAI = new GoogleGenerativeAI(currentKey);
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    if (!this.keyUsageCount.has(currentKey)) {
-      this.keyUsageCount.set(currentKey, 0);
-    }
+    // Initialize the new Gemini client
+    this.client = new GoogleGenAI({
+      apiKey: this.apiKey
+    });
+    this.modelName = "gemini-2.5-flash";
 
     return true;
   }
 
-  getBestAvailableKeyIndex() {
-    const availableKeys = [];
-    for (let i = 0; i < this.apiKeys.length; i++) {
-      if (!this.isKeyExhausted(i)) {
-        availableKeys.push(i);
-      }
-    }
-
-    if (availableKeys.length === 0) {
-      return -1;
-    }
-
-    const rotationIndex = this.callCounter % availableKeys.length;
-    return availableKeys[rotationIndex];
-  }
-
-  isKeyExhausted(keyIndex) {
-    const key = this.apiKeys[keyIndex];
-    if (!this.exhaustedKeys.has(key)) return false;
-
-    const exhaustionTime = this.keyExhaustionTime.get(key);
-    if (!exhaustionTime) return false;
-
-    const now = new Date();
-    const hoursElapsed = (now - exhaustionTime) / (1000 * 60 * 60);
-
-    if (hoursElapsed >= 24) {
-      this.exhaustedKeys.delete(key);
-      this.keyExhaustionTime.delete(key);
-      this.keyUsageCount.set(key, 0);
-      return false;
-    }
-
-    return true;
-  }
 
   /**
    * Parse AI response and extract JSON from markdown code blocks
@@ -113,70 +73,44 @@ export default class BaseAgent {
   }
 
   async callGemini(prompt) {
-    if (!this.model) {
-      throw new Error(`Gemini not initialized for ${this.name}`);
+    if (!this.client) {
+      console.log(`⚠️ ${this.name}: No Gemini client initialized - using fallback response.`);
+      throw new Error('No Gemini client initialized - using fallback');
     }
 
     this.callCounter++;
-
-    const bestKeyIndex = this.getBestAvailableKeyIndex();
-    if (bestKeyIndex === -1) {
-      throw new Error('All API keys are exhausted');
-    }
-
-    if (bestKeyIndex !== this.currentKeyIndex) {
-      this.currentKeyIndex = bestKeyIndex;
-      this.initializeGemini();
-    }
+    const callId = this.callCounter;
 
     try {
-      const response = await this.model.generateContent(prompt);
-      const currentKey = this.apiKeys[this.currentKeyIndex];
-      this.keyUsageCount.set(currentKey, (this.keyUsageCount.get(currentKey) || 0) + 1);
-      return response.response.text();
-    } catch (error) {
-      // Handle 503 Service Unavailable (overloaded) errors
-      if (error.status === 503 || error.message?.includes('overloaded') || error.message?.includes('Service Unavailable')) {
-        console.log(`🔄 API key ${this.currentKeyIndex + 1} is overloaded (503), adding delay and trying next key...`);
-        
-        // Add a small delay to avoid overwhelming the API
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Try next available key
-        const nextIndex = this.getBestAvailableKeyIndex();
-        if (nextIndex !== -1 && nextIndex !== this.currentKeyIndex) {
-          this.currentKeyIndex = nextIndex;
-          this.initializeGemini();
-          
-          // Retry with next key
-          try {
-            const retryResponse = await this.model.generateContent(prompt);
-            const currentKey = this.apiKeys[this.currentKeyIndex];
-            this.keyUsageCount.set(currentKey, (this.keyUsageCount.get(currentKey) || 0) + 1);
-            return retryResponse.response.text();
-          } catch (retryError) {
-            console.error('Retry with next key also failed:', retryError);
-            throw retryError;
-          }
-        } else {
-          console.log('No other API keys available, throwing 503 error');
-          throw error;
-        }
-      }
-      
-      if (error.message.includes('429') || error.message.includes('quota') || error.message.includes('limit')) {
-        const failedKey = this.apiKeys[this.currentKeyIndex];
-        this.exhaustedKeys.add(failedKey);
-        this.keyExhaustionTime.set(failedKey, new Date());
+      console.log(`🚀 ${this.name}: Making API call #${callId} with ${this.modelName}...`);
 
-        const nextIndex = this.getBestAvailableKeyIndex();
-        if (nextIndex !== -1) {
-          this.currentKeyIndex = nextIndex;
-          this.initializeGemini();
-          return await this.callGemini(prompt);
+      // Use new API format with thinking budget set to 0 for faster responses
+      const response = await this.client.models.generateContent({
+        model: this.modelName,
+        contents: prompt,
+        config: {
+          thinking_config: {
+            thinking_budget: 0 // Disable thinking for faster responses
+          }
         }
+      });
+
+      const responseText = response.text;
+      console.log(`✅ ${this.name}: API call #${callId} successful (${responseText.length} chars)`);
+      return responseText;
+    } catch (error) {
+      console.error(`❌ ${this.name}: API call #${callId} failed:`, error.message);
+
+      // Check for specific error types
+      if (error.message.includes('API_KEY_INVALID') || error.message.includes('403')) {
+        throw new Error('Invalid API key - check your Gemini API key configuration');
+      } else if (error.message.includes('429')) {
+        throw new Error('API rate limit exceeded - please try again later');
+      } else if (error.message.includes('quota')) {
+        throw new Error('API quota exceeded - check your billing settings');
       }
-      throw error;
+
+      throw new Error(`Gemini API error: ${error.message}`);
     }
   }
 

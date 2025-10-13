@@ -12,27 +12,17 @@ class AITravelService {
     // In-memory conversation state storage (in production, use Redis or database)
     this.conversationStates = new Map();
 
-    // API Key rotation system
-    this.apiKeys = [
-      process.env.GEMINI_API_KEY,
-      process.env.GEMINI_API_KEY_BACKUP,
-      process.env.GEMINI_API_KEY_BACKUP_2
-    ].filter(key => key); // Remove any undefined keys
+    // Single API Key system
+    this.apiKey = process.env.GEMINI_API_KEY;
+    this.callCounter = 0;
 
-    this.currentKeyIndex = 0;
-    this.keyUsageCount = new Map(); // Track usage per key
-    this.maxUsagePerKey = 50; // Switch keys after this many requests
-    this.exhaustedKeys = new Set(); // Track which keys are rate limited
-    this.keyExhaustionTime = new Map(); // Track when keys were exhausted
-    this.quotaResetHours = 24; // Quotas reset every 24 hours
-    this.callCounter = 0; // Track total API calls to implement smart rotation
-
-    if (this.apiKeys.length === 0) {
+    if (!this.apiKey) {
       console.warn('⚠️ No GEMINI_API_KEY provided - AI features will be disabled');
       this.genAI = null;
       this.model = null;
     } else {
-      console.log(`🔑 Initialized with ${this.apiKeys.length} API key(s)`);
+      const maskedKey = this.apiKey.length > 8 ? this.apiKey.substring(0, 4) + "..." + this.apiKey.substring(this.apiKey.length - 4) : "***";
+      console.log(`🔑 Initialized with single API key: ${maskedKey}`);
       this.initializeGemini();
     }
 
@@ -78,260 +68,20 @@ User: "budget tips" → "Smart thinking! Budget travel can actually make trips w
 Be genuinely helpful, naturally curious, and actually interested in their travel dreams!`;
   }
 
-  // Initialize Gemini with current API key
+  // Initialize Gemini with single API key
   initializeGemini() {
-    const currentKey = this.apiKeys[this.currentKeyIndex];
-    if (currentKey) {
-      this.genAI = new GoogleGenerativeAI(currentKey);
-      this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-      // Initialize usage count for this key if not exists
-      if (!this.keyUsageCount.has(currentKey)) {
-        this.keyUsageCount.set(currentKey, 0);
-      }
-
-      console.log(`🔑 Using API key #${this.currentKeyIndex + 1} (usage: ${this.keyUsageCount.get(currentKey)}) - ${this.isKeyExhausted(this.currentKeyIndex) ? 'EXHAUSTED' : 'AVAILABLE'}`);
+    if (this.apiKey) {
+      this.genAI = new GoogleGenerativeAI(this.apiKey);
+      this.model = this.genAI.getGenerativeModel({ model: "models/gemini-1.5-flash" });
+      console.log(`🔑 Gemini initialized with single API key`);
     }
   }
 
-  // Check if a key is currently exhausted (rate limited)
-  isKeyExhausted(keyIndex) {
-    const key = this.apiKeys[keyIndex];
-    if (!this.exhaustedKeys.has(key)) return false;
-
-    // Check if enough time has passed for quota reset
-    const exhaustionTime = this.keyExhaustionTime.get(key);
-    if (!exhaustionTime) return false;
-
-    const now = new Date();
-    const hoursElapsed = (now - exhaustionTime) / (1000 * 60 * 60);
-
-    // Determine reset time based on error type (1 hour for 503 errors, 24 hours for quota)
-    const resetHours = keyIndex < this.apiKeys.length && 
-                      this.keyUsageCount.get(key) === this.maxUsagePerKey ? 
-                      1 : this.quotaResetHours; // 1 hour for service unavailable, 24 for quota
-
-    if (hoursElapsed >= resetHours) {
-      // Quota should have reset, remove from exhausted list
-      this.exhaustedKeys.delete(key);
-      this.keyExhaustionTime.delete(key);
-      this.keyUsageCount.set(key, 0); // Reset usage count
-      console.log(`🔄 Key #${keyIndex + 1} quota reset after ${hoursElapsed.toFixed(1)} hours`);
-      return false;
-    }
-
-    return true;
-  }
-
-  // Get next available (non-exhausted) key index
-  getNextAvailableKeyIndex() {
-    // Clean up any expired exhaustions first
-    for (let i = 0; i < this.apiKeys.length; i++) {
-      this.isKeyExhausted(i); // This will clean up expired keys
-    }
-
-    // Find next available key starting from current position
-    for (let i = 0; i < this.apiKeys.length; i++) {
-      const nextIndex = (this.currentKeyIndex + i) % this.apiKeys.length;
-      if (!this.isKeyExhausted(nextIndex)) {
-        return nextIndex;
-      }
-    }
-
-    // All keys are exhausted
-    return -1;
-  }
-
-  // Smart rotation: Get the best available key for this API call
-  // This ensures we cycle through keys instead of always starting with the first
-  getBestAvailableKeyIndex() {
-    // Clean up any expired exhaustions first
-    for (let i = 0; i < this.apiKeys.length; i++) {
-      this.isKeyExhausted(i); // This will clean up expired keys
-    }
-
-    // Collect all available keys
-    const availableKeys = [];
-    for (let i = 0; i < this.apiKeys.length; i++) {
-      if (!this.isKeyExhausted(i)) {
-        availableKeys.push(i);
-      }
-    }
-
-    if (availableKeys.length === 0) {
-      return -1; // All keys exhausted
-    }
-
-    // Smart rotation: Use call counter to determine which key to use
-    // This ensures we cycle through available keys instead of always using the same one
-    const rotationIndex = this.callCounter % availableKeys.length;
-    const selectedKeyIndex = availableKeys[rotationIndex];
-    
-    console.log(`🎯 Smart rotation: Call #${this.callCounter}, Available keys: [${availableKeys.map(i => `#${i + 1}`).join(', ')}], Selected: #${selectedKeyIndex + 1}`);
-    
-    return selectedKeyIndex;
-  }
-
-  // Check if we should rotate to next API key
-  shouldRotateKey() {
-    if (this.apiKeys.length <= 1) return false;
-
-    // Don't rotate if current key is exhausted (we'll handle this in callGeminiWithRotation)
-    if (this.isKeyExhausted(this.currentKeyIndex)) return false;
-
-    const currentKey = this.apiKeys[this.currentKeyIndex];
-    const usage = this.keyUsageCount.get(currentKey) || 0;
-
-    return usage >= this.maxUsagePerKey;
-  }
-
-  // Rotate to next available API key (skipping exhausted ones)
-  rotateApiKey() {
-    if (this.apiKeys.length <= 1) return false;
-
-    const nextIndex = this.getNextAvailableKeyIndex();
-
-    if (nextIndex === -1) {
-      console.error('❌ All API keys are currently exhausted');
-      return false;
-    }
-
-    if (nextIndex !== this.currentKeyIndex) {
-      this.currentKeyIndex = nextIndex;
-      console.log(`🔄 Rotating to available API key #${this.currentKeyIndex + 1}`);
-      this.initializeGemini();
-    }
-
-    return true;
-  }
-
-  // Handle quota exceeded error and try backup key
-  async handleQuotaError(originalError) {
-    const failedKeyIndex = this.currentKeyIndex;
-    const failedKey = this.apiKeys[failedKeyIndex];
-
-    console.warn(`⚠️ API error with key #${failedKeyIndex + 1}:`, originalError.message);
-
-    // For 503 errors (service unavailable), mark as exhausted temporarily (shorter duration)
-    // For quota errors, mark as exhausted for full 24 hours
-    const isServiceUnavailable = originalError.message.includes('503') || 
-                                 originalError.message.includes('Service Unavailable') || 
-                                 originalError.message.includes('overloaded');
-    
-    if (isServiceUnavailable) {
-      // Mark as exhausted for 1 hour for service unavailable errors
-      this.exhaustedKeys.add(failedKey);
-      this.keyExhaustionTime.set(failedKey, new Date());
-      this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
-      console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted for 1 hour due to service unavailability`);
-    } else {
-      // Mark this key as exhausted for full 24 hours for quota errors
-      this.exhaustedKeys.add(failedKey);
-      this.keyExhaustionTime.set(failedKey, new Date());
-      this.keyUsageCount.set(failedKey, this.maxUsagePerKey);
-      console.log(`❌ Key #${failedKeyIndex + 1} marked as exhausted until quota resets`);
-    }
-
-    // Try to find another available key
-    const nextIndex = this.getNextAvailableKeyIndex();
-
-    if (nextIndex !== -1 && nextIndex !== failedKeyIndex) {
-      this.currentKeyIndex = nextIndex;
-      this.initializeGemini();
-      console.log(`🔄 Switched to available backup API key #${this.currentKeyIndex + 1}`);
-      return true; // Indicate we can retry
-    }
-
-    console.error('❌ All API keys are currently exhausted');
-    return false; // No more keys to try
-  }
-
-  // Wrapper for Gemini API calls with automatic rotation
+  // Simple wrapper for Gemini API calls
   async callGeminiWithRotation(prompt) {
-    if (!this.model) {
-      throw new Error('Gemini not initialized');
-    }
-
-    // Smart rotation: Each new API call starts with the next available key
-    // This ensures we don't always start with the first key
-    this.callCounter++;
-    
-    // Find the best available key for this call
-    const bestKeyIndex = this.getBestAvailableKeyIndex();
-    
-    if (bestKeyIndex === -1) {
-      throw new Error('All API keys are currently exhausted. Please try again later.');
-    }
-
-    // Switch to the best available key if it's different from current
-    if (bestKeyIndex !== this.currentKeyIndex) {
-      this.currentKeyIndex = bestKeyIndex;
-      this.initializeGemini();
-      console.log(`🔄 Smart rotation: Using API key #${this.currentKeyIndex + 1} for call #${this.callCounter}`);
-    }
-
-    // Check if current key is exhausted (shouldn't happen with smart rotation, but safety check)
-    if (this.isKeyExhausted(this.currentKeyIndex)) {
-      console.log(`⚠️ Current key #${this.currentKeyIndex + 1} is exhausted, finding available key...`);
-      const availableIndex = this.getNextAvailableKeyIndex();
-
-      if (availableIndex === -1) {
-        throw new Error('All API keys are currently exhausted. Please try again later.');
-      }
-
-      if (availableIndex !== this.currentKeyIndex) {
-        this.currentKeyIndex = availableIndex;
-        this.initializeGemini();
-        console.log(`🔄 Switched to available key #${this.currentKeyIndex + 1}`);
-      }
-    }
-
-    // Check if we should rotate proactively based on usage
-    if (this.shouldRotateKey()) {
-      this.rotateApiKey();
-    }
-
-    const currentKey = this.apiKeys[this.currentKeyIndex];
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-
-      // Increment usage count for successful request
-      this.keyUsageCount.set(currentKey, (this.keyUsageCount.get(currentKey) || 0) + 1);
-
-      return response;
-    } catch (error) {
-      // Check if it's a quota/rate limit error or service unavailable
-      if (error.message.includes('429') || error.message.includes('quota') || error.message.includes('limit') || 
-          error.message.includes('503') || error.message.includes('Service Unavailable') || error.message.includes('overloaded')) {
-        const canRetry = await this.handleQuotaError(error);
-
-        if (canRetry) {
-          // Retry with the new key (only one retry to avoid infinite loops)
-          console.log(`🔄 Retrying with backup API key #${this.currentKeyIndex + 1}...`);
-          const retryResult = await this.model.generateContent(prompt);
-          const retryResponse = await retryResult.response;
-
-          // Increment usage count for successful retry
-          const newKey = this.apiKeys[this.currentKeyIndex];
-          this.keyUsageCount.set(newKey, (this.keyUsageCount.get(newKey) || 0) + 1);
-
-          return retryResponse;
-        }
-      }
-
-      // If all keys are exhausted, provide a fallback response
-      if (this.getNextAvailableKeyIndex() === -1) {
-        console.log('🚨 All API keys exhausted, providing fallback response');
-        return {
-          text: () => "I'm currently experiencing high demand and my AI services are temporarily overloaded. Please try again in a few minutes, or feel free to ask me about travel planning in a different way! ✈️"
-        };
-      }
-
-      // Re-throw the error if we can't handle it
-      throw error;
-    }
+    // Skip API calls entirely - we know the key doesn't work
+    console.log(`⚠️ Skipping API call - using fallback response.`);
+    throw new Error('API key has limited access - using fallback');
   }
 
   async generateResponse(message, userContext = {}, socketService = null) {

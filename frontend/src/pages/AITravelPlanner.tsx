@@ -44,7 +44,6 @@ import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import useAITravelBuddy from '../hooks/useAITravelBuddy';
 import AgentStatusDisplay from '../components/AgentStatusDisplay';
-import TripPlanDisplay from '../components/TripPlanDisplay';
 import { DesktopNavigation, Navigation } from '../components/Navigation';
 import type { AIChatMessage, AIUserContext } from '../types/aiChat';
 
@@ -52,7 +51,6 @@ const AITravelPlanner: React.FC = () => {
   const navigate = useNavigate();
   const [inputValue, setInputValue] = useState('');
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
-  const [isAIThinking, setIsAIThinking] = useState(false);
   const [chatHistory] = useState([
     { id: '1', title: 'Tokyo 7-day Trip', timestamp: 'Yesterday', preview: 'Plan a complete 7-day itinerary for Tokyo...' },
     { id: '2', title: 'Budget Europe Travel', timestamp: '2 days ago', preview: 'Find budget-friendly destinations in Europe...' },
@@ -98,22 +96,68 @@ const AITravelPlanner: React.FC = () => {
     addMessage,
   } = useAITravelBuddy(enhancedUserContext);
 
-  // Auto-scroll to bottom when new messages arrive - with delay to prevent jumping
+  // Auto-scroll to bottom when new messages arrive or agent status changes
   useEffect(() => {
     const scrollToBottom = () => {
       if (messagesEndRef.current) {
-        const container = messagesEndRef.current.parentElement;
+        // Find the scroll container by traversing up the DOM tree
+        let container = messagesEndRef.current.parentElement;
+        while (container && !container.classList.contains('overflow-y-auto')) {
+          container = container.parentElement;
+        }
+        
         if (container) {
-          container.scrollTop = container.scrollHeight;
+          // Use instant scroll for better UX
+          requestAnimationFrame(() => {
+            container.scrollTop = container.scrollHeight;
+          });
         }
       }
     };
     
-    // Use requestAnimationFrame to ensure DOM has updated before scrolling
-    requestAnimationFrame(() => {
-      setTimeout(scrollToBottom, 50);
+    // Small delay to ensure content is rendered
+    const timer = setTimeout(scrollToBottom, 50);
+    return () => clearTimeout(timer);
+  }, [messages, agentStatus]);
+
+  // Advanced auto-scroll: Watch for content changes using MutationObserver
+  useEffect(() => {
+    if (!messagesEndRef.current) return;
+
+    // Find the scroll container
+    let container = messagesEndRef.current.parentElement;
+    while (container && !container.classList.contains('overflow-y-auto')) {
+      container = container.parentElement;
+    }
+    
+    if (!container) return;
+
+    let scrollTimeout: NodeJS.Timeout;
+    const observer = new MutationObserver(() => {
+      // Debounce scroll events
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        requestAnimationFrame(() => {
+          container!.scrollTop = container!.scrollHeight;
+        });
+      }, 100);
     });
-  }, [messages]);
+
+    // Observe the content area for changes
+    const contentArea = messagesEndRef.current.parentElement;
+    if (contentArea) {
+      observer.observe(contentArea, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(scrollTimeout);
+    };
+  }, []);
 
   // Focus input when component mounts
   useEffect(() => {
@@ -308,9 +352,6 @@ const AITravelPlanner: React.FC = () => {
 
     const message = inputValue.trim();
     setInputValue('');
-    
-    // Set AI thinking state
-    setIsAIThinking(true);
 
     // Show agent status for trip planning requests
     if (message.toLowerCase().includes('plan') || message.toLowerCase().includes('trip')) {
@@ -335,8 +376,10 @@ const AITravelPlanner: React.FC = () => {
 
     try {
       await sendMessage(message);
-    } finally {
-      setIsAIThinking(false);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Hide agent status on error
+      setAgentStatus(prev => ({ ...prev, isVisible: false }));
     }
   };
 
@@ -348,19 +391,43 @@ const AITravelPlanner: React.FC = () => {
   };
 
   const formatMessage = (content: string) => {
+    // Enhanced markdown formatting for structured trip plans with dark mode support
     return content
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-foreground font-semibold">$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em class="text-foreground/90">$1</em>')
-      .replace(/```(.*?)```/gs, '<code class="block bg-muted p-3 rounded-lg my-3 text-sm font-mono text-foreground border border-border/50">$1</code>')
-      .replace(/`(.*?)`/g, '<code class="bg-muted px-2 py-1 rounded text-sm font-mono text-foreground">$1</code>');
+      // H3 headers (### Header)
+      .replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold text-foreground mt-4 mb-2">$1</h3>')
+      // H2 headers (## Header)
+      .replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold text-foreground mt-4 mb-2">$1</h2>')
+      // Horizontal rules (---)
+      .replace(/^---$/gm, '<hr class="my-4 border-border"/>')
+      // Checkboxes [ ]
+      .replace(/^\* \[ \]\s+(.+)$/gm, '<div class="ml-4 my-1 flex items-start text-foreground"><span class="mr-2">☐</span><span>$1</span></div>')
+      .replace(/^\*\s+\[\s+\]\s+(.+)$/gm, '<div class="ml-4 my-1 flex items-start text-foreground"><span class="mr-2">☐</span><span>$1</span></div>')
+      // Bold text
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
+      // Italic text (after bold to avoid conflicts)
+      .replace(/\*([^\*]+?)\*/g, '<em class="text-muted-foreground">$1</em>')
+      // Code blocks
+      .replace(/```(.*?)```/gs, '<code class="block bg-muted p-2 rounded my-2 text-foreground">$1</code>')
+      // Inline code
+      .replace(/`(.*?)`/g, '<code class="bg-muted px-1 rounded text-foreground">$1</code>')
+      // Numbered lists (1. 2. 3.)
+      .replace(/^(\d+)\.\s+(.+)$/gm, '<div class="ml-4 my-1 text-foreground">$1. $2</div>')
+      // Main bullet points (* at start of line)
+      .replace(/^\*\s+(.+)$/gm, '<div class="ml-4 my-1 text-foreground">• $1</div>')
+      // Nested bullet points (4 spaces + * for indentation)
+      .replace(/^    \*\s+(.+)$/gm, '<div class="ml-8 my-0.5 text-sm text-muted-foreground">  ‣ $1</div>')
+      // Convert double line breaks to paragraph spacing
+      .replace(/\n\n/g, '<br/><br/>')
+      // Convert single line breaks
+      .replace(/\n/g, '<br/>');
   };
 
   const renderMessage = (message: AIChatMessage) => {
     const isUser = message.role === 'user';
     const isTyping = message.isTyping;
 
-    // Avoid duplicate thinking indicators: hide typing bubble when bottom bar is active
-    if (isTyping && isAIThinking) {
+    // Avoid duplicate thinking indicators: hide typing bubble when agent status is showing
+    if (isTyping && agentStatus.isVisible) {
       return null;
     }
 
@@ -397,33 +464,6 @@ const AITravelPlanner: React.FC = () => {
               </div>
               <span className="text-muted-foreground ml-2">WanderBuddy is crafting your perfect trip...</span>
             </div>
-          ) : message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback' ? (
-            <TripPlanDisplay
-              content={message.content}
-              metadata={{
-                ...message.metadata,
-                rawData: message.metadata?.rawData,
-                userProfile: userProfile // Pass the user profile data
-              }}
-              className="w-full"
-              onSelectionComplete={(selections) => {
-                console.log('User selections:', selections);
-                // Handle the selection completion - could trigger next phase of planning
-                if (selections.selectedFlight !== undefined || selections.selectedHotel !== undefined) {
-                  // Show a success message or trigger next steps
-                  const selectionMessage = `Great choices! ${
-                    selections.selectedFlight !== undefined ? `Flight option ${selections.selectedFlight + 1}` : ''
-                  }${
-                    selections.selectedFlight !== undefined && selections.selectedHotel !== undefined ? ' and ' : ''
-                  }${
-                    selections.selectedHotel !== undefined ? `Hotel option ${selections.selectedHotel + 1}` : ''
-                  } selected. Let me finalize your complete itinerary!`;
-                  
-                  // Could send this back to the AI for final processing
-                  console.log('Selection confirmation:', selectionMessage);
-                }
-              }}
-            />
           ) : (
             <div
               dangerouslySetInnerHTML={{
@@ -682,46 +722,6 @@ const AITravelPlanner: React.FC = () => {
           <div className="border-t border-border/50 shrink-0 bg-background" style={{ minHeight: '160px' }}>
             <div className="max-w-4xl mx-auto p-6">
 
-              {/* AI Thinking Indicator - Fixed Height */}
-              <div className="mb-4 flex items-center justify-center" style={{ minHeight: '40px' }}>
-                <AnimatePresence>
-                  {isAIThinking && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="flex items-center space-x-3 bg-gradient-to-r from-sunrise-coral/10 to-sunrise-teal/10 px-6 py-3 rounded-full border border-sunrise-coral/20"
-                    >
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                        className="w-4 h-4 border-2 border-sunrise-coral border-t-transparent rounded-full"
-                      />
-                      <span className="text-sm font-medium text-sunrise-coral">
-                        WanderBuddy is thinking...
-                      </span>
-                      <div className="flex space-x-1">
-                        <motion.div
-                          className="w-1 h-1 bg-sunrise-coral rounded-full"
-                          animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: 0 }}
-                        />
-                        <motion.div
-                          className="w-1 h-1 bg-sunrise-coral rounded-full"
-                          animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: 0.2 }}
-                        />
-                        <motion.div
-                          className="w-1 h-1 bg-sunrise-coral rounded-full"
-                          animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: 0.4 }}
-                        />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
               {/* Input */}
               <div className="flex items-center space-x-4">
                 <div className="flex-1 relative">
@@ -731,10 +731,10 @@ const AITravelPlanner: React.FC = () => {
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="What do you want to know?"
-                    disabled={isLoading || isAIThinking}
+                    disabled={isLoading || agentStatus.isVisible}
                     className={cn(
                       "h-14 text-base bg-background border-2 rounded-2xl px-6 pr-16 transition-all duration-300",
-                      isAIThinking 
+                      agentStatus.isVisible 
                         ? "border-sunrise-coral/30 bg-sunrise-coral/5" 
                         : "border-border/50 focus:border-sunrise-coral focus:ring-1 focus:ring-sunrise-coral"
                     )}
@@ -746,15 +746,15 @@ const AITravelPlanner: React.FC = () => {
                 </div>
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!inputValue.trim() || isLoading || isAIThinking}
+                  disabled={!inputValue.trim() || isLoading || agentStatus.isVisible}
                   className={cn(
                     "h-14 w-14 rounded-2xl flex items-center justify-center transition-all duration-300",
-                    isAIThinking
+                    agentStatus.isVisible
                       ? "bg-gradient-to-r from-sunrise-coral/50 to-sunrise-teal/50 cursor-not-allowed"
                       : "bg-gradient-sunrise hover:shadow-glow text-white"
                   )}
                 >
-                  {isLoading || isAIThinking ? (
+                  {isLoading || agentStatus.isVisible ? (
                     <motion.div
                       animate={{ rotate: 360 }}
                       transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}

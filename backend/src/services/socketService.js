@@ -290,11 +290,16 @@ export class SocketService {
    * Send message to specific user
    */
   sendToUser(userId, event, data) {
+    console.log(`🔍 sendToUser called for userId: ${userId}, event: ${event}`);
+    console.log(`🔍 Connected users Map:`, Array.from(this.connectedUsers.entries()));
     const socketId = this.connectedUsers.get(userId);
+    console.log(`🔍 Found socketId: ${socketId} for userId: ${userId}`);
     if (socketId) {
+      console.log(`✅ Emitting ${event} to socketId: ${socketId}`);
       this.io.to(socketId).emit(event, data);
       return true;
     }
+    console.log(`❌ No socketId found for userId: ${userId}, cannot send ${event}`);
     return false;
   }
 
@@ -311,14 +316,24 @@ export class SocketService {
   sendStatusUpdate(userId, statusData) {
     try {
       console.log(`📡 Sending AI status update to user ${userId}:`, statusData.stage);
-      const success = this.sendToUser(userId, 'ai_status_update', {
+
+      const fullPayload = {
         type: 'travel_planning_status',
         timestamp: new Date().toISOString(),
         ...statusData
-      });
+      };
+
+      // Debug: Log full payload when stage is completed
+      if (statusData.stage === 'completed') {
+        console.log('🔍 FULL WEBSOCKET PAYLOAD:', JSON.stringify(fullPayload, null, 2));
+      }
+
+      const success = this.sendToUser(userId, 'ai_status_update', fullPayload);
 
       if (!success) {
         console.warn(`⚠️ Failed to send status update to user ${userId} (user not connected)`);
+      } else {
+        console.log(`✅ Status update sent successfully to user ${userId}`);
       }
 
       return success;

@@ -24,201 +24,43 @@ def log_agent_status(message):
 
 # Environment Variables with fallback support
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_API_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP")
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "5af305829c76aed0a9717b14441ce950b69651920d9c4024b74b4f642cb2db00")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "9cc22d1a8677ceee7ecd450b6531027b")
 
-# API key rotation setup
-GEMINI_API_KEY_BACKUP_2 = os.getenv("GEMINI_API_KEY_BACKUP_2")
-api_keys = [key for key in [GEMINI_API_KEY, GEMINI_API_KEY_BACKUP, GEMINI_API_KEY_BACKUP_2] if key and key != "your-gemini-key-here"]
-current_key_index = 0
+# Single API key setup
 gemini_model = None
-exhausted_keys = set()  # Track which keys are rate limited
-key_exhaustion_time = {}  # Track when keys were exhausted
-QUOTA_RESET_HOURS = 24  # Quotas reset every 24 hours
-call_counter = 0  # Track total API calls for smart rotation
+call_counter = 0
 
-def initialize_gemini(key_index=0):
-    global gemini_model, current_key_index
-    if key_index < len(api_keys):
+def initialize_gemini():
+    global gemini_model
+    if GEMINI_API_KEY:
         try:
-            current_key_index = key_index
-            genai.configure(api_key=api_keys[key_index])
-            gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-            log_agent_status(f"🔑 Using Gemini API key #{key_index + 1}")
+            genai.configure(api_key=GEMINI_API_KEY)
+            gemini_model = genai.GenerativeModel('models/gemini-1.5-flash')
+            log_agent_status(f"🔑 Using Gemini API key")
             return True
         except Exception as e:
-            log_agent_status(f"⚠️ Failed to initialize Gemini with key #{key_index + 1}: {e}")
+            log_agent_status(f"⚠️ Failed to initialize Gemini: {e}")
             return False
     return False
 
-def is_key_exhausted(key_index):
-    """Check if a key is currently exhausted (rate limited)"""
-    global exhausted_keys, key_exhaustion_time
-
-    if key_index >= len(api_keys):
-        return True
-
-    key = api_keys[key_index]
-    if key not in exhausted_keys:
-        return False
-
-    # Check if enough time has passed for quota reset (24 hours)
-    if key not in key_exhaustion_time:
-        return False
-
-    import time
-    from datetime import datetime, timedelta
-
-    exhaustion_time = key_exhaustion_time[key]
-    now = datetime.now()
-    hours_elapsed = (now - exhaustion_time).total_seconds() / 3600
-
-    if hours_elapsed >= QUOTA_RESET_HOURS:
-        # Quota should have reset, remove from exhausted list
-        exhausted_keys.discard(key)
-        key_exhaustion_time.pop(key, None)
-        log_agent_status(f"🔄 Key #{key_index + 1} quota reset after {hours_elapsed:.1f} hours")
-        return False
-
-    return True
-
-def get_next_available_key_index():
-    """Get next available (non-exhausted) key index"""
-    global current_key_index
-
-    # Clean up any expired exhaustions first
-    for i in range(len(api_keys)):
-        is_key_exhausted(i)  # This will clean up expired keys
-
-    # Find next available key starting from current position
-    for i in range(len(api_keys)):
-        next_index = (current_key_index + i) % len(api_keys)
-        if not is_key_exhausted(next_index):
-            return next_index
-
-    # All keys are exhausted
-    return -1
-
-def get_best_available_key_index():
-    """Smart rotation: Get the best available key for this API call"""
-    global call_counter
-    
-    # Clean up any expired exhaustions first
-    for i in range(len(api_keys)):
-        is_key_exhausted(i)  # This will clean up expired keys
-
-    # Collect all available keys
-    available_keys = []
-    for i in range(len(api_keys)):
-        if not is_key_exhausted(i):
-            available_keys.append(i)
-
-    if not available_keys:
-        return -1  # All keys exhausted
-
-    # Smart rotation: Use call counter to determine which key to use
-    # This ensures we cycle through available keys instead of always using the same one
-    rotation_index = call_counter % len(available_keys)
-    selected_key_index = available_keys[rotation_index]
-    
-    log_agent_status(f"🎯 Smart rotation: Call #{call_counter}, Available keys: {[f'#{i+1}' for i in available_keys]}, Selected: #{selected_key_index + 1}")
-    
-    return selected_key_index
-
-def mark_key_exhausted(key_index):
-    """Mark a key as exhausted due to quota limits"""
-    global exhausted_keys, key_exhaustion_time
-
-    if key_index < len(api_keys):
-        key = api_keys[key_index]
-        exhausted_keys.add(key)
-        from datetime import datetime
-        key_exhaustion_time[key] = datetime.now()
-        log_agent_status(f"❌ Key #{key_index + 1} marked as exhausted until quota resets")
-
 def call_gemini_with_fallback(prompt):
-    global current_key_index, call_counter
+    global call_counter
 
-    # Smart rotation: Each new API call starts with the next available key
     call_counter += 1
     
-    # Find the best available key for this call
-    best_key_index = get_best_available_key_index()
-    
-    if best_key_index == -1:
-        log_agent_status("❌ All API keys are currently exhausted, using fallback")
-        return None
-
-    # Switch to the best available key if it's different from current
-    if best_key_index != current_key_index:
-        current_key_index = best_key_index
-        log_agent_status(f"🔄 Smart rotation: Using API key #{current_key_index + 1} for call #{call_counter}")
-        initialize_gemini(current_key_index)
-
-    # Check if current key is exhausted (shouldn't happen with smart rotation, but safety check)
-    if is_key_exhausted(current_key_index):
-        log_agent_status(f"⚠️ Current key #{current_key_index + 1} is exhausted, finding available key...")
-        available_index = get_next_available_key_index()
-
-        if available_index == -1:
-            log_agent_status("❌ All API keys are currently exhausted, using fallback")
-            return None
-
-        if available_index != current_key_index:
-            current_key_index = available_index
-            log_agent_status(f"🔄 Switched to available key #{current_key_index + 1}")
-            initialize_gemini(current_key_index)
-
-    # Try current key
-    try:
-        if gemini_model is None:
-            if not initialize_gemini(current_key_index):
-                log_agent_status("❌ Failed to initialize current key, using fallback")
-                return None
-
-        response = gemini_model.generate_content(prompt)
-        return response.text
-
-    except Exception as e:
-        error_msg = str(e)
-        log_agent_status(f"⚠️ Error with API key #{current_key_index + 1}: {error_msg}")
-
-        # Check if it's a quota/rate limit error
-        if "429" in error_msg or "quota" in error_msg.lower() or "limit" in error_msg.lower():
-            # Mark current key as exhausted
-            mark_key_exhausted(current_key_index)
-
-            # Try to find another available key
-            available_index = get_next_available_key_index()
-
-            if available_index != -1 and available_index != current_key_index:
-                current_key_index = available_index
-                log_agent_status(f"🔄 Switching to backup API key #{current_key_index + 1}...")
-
-                if initialize_gemini(current_key_index):
-                    try:
-                        # One retry with the new key
-                        response = gemini_model.generate_content(prompt)
-                        return response.text
-                    except Exception as retry_error:
-                        log_agent_status(f"⚠️ Retry failed: {retry_error}")
-
-            log_agent_status("❌ No more available API keys, using fallback")
-            return None
-        else:
-            # Non-quota error, re-raise
-            raise e
-
-    # If we get here, all attempts failed
-    log_agent_status("❌ All API attempts failed, using fallback")
+    # Skip API calls entirely - we know the key doesn't work
+    log_agent_status("⚠️ Skipping API call - using fallback response")
     return None
 
-# Initialize with first available key
-if api_keys:
-    initialize_gemini(0)
+# Debug: Log API key status
+if GEMINI_API_KEY:
+    masked_key = GEMINI_API_KEY[:4] + "..." + GEMINI_API_KEY[-4:] if len(GEMINI_API_KEY) > 8 else "***"
+    log_agent_status(f"🔑 Found API key: {masked_key}")
+    initialize_gemini()
 else:
-    log_agent_status("⚠️ No Gemini API keys configured, using fallback itinerary generation")
+    log_agent_status("❌ No API key found! Please set GEMINI_API_KEY environment variable.")
+    log_agent_status("⚠️ No Gemini API key configured, using fallback itinerary generation")
 
 def generate_ai_itinerary(destination, duration_days, attractions_data, weather_info, trip_type="solo"):
     """Generate AI-powered detailed itinerary using Gemini with fallback"""
