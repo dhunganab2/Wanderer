@@ -39,8 +39,7 @@ function initializeMap() {
     
     // Create the iframe with Google Maps Embed API
     const iframe = document.createElement('iframe');
-    iframe.src = `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_API_KEY}&q=${currentLocation}`;
-    iframe.width = '100%';
+    iframe.src = `https://www.google.com/maps/embed/v1/place?key=${AIzaSyAVIIZtA7T_OxT0ar3SFxNWcjkge7qs6g4
     iframe.height = '100%';
     iframe.style.border = '0';
     iframe.allowFullscreen = true;

@@ -45,9 +45,16 @@ export const TravelCard: React.FC<TravelCardProps> = ({
       {/* Enhanced Cover Image */}
       <div className="relative h-64 overflow-hidden">
         <img 
-          src={user.coverImage || user.avatar} 
+          src={user.coverImage || user.avatar || '/placeholder.svg'} 
           alt={`${user.name}'s travel photo`}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000"
+          onError={(e) => {
+            // If both coverImage and avatar fail, use a placeholder
+            const target = e.target as HTMLImageElement;
+            if (target.src !== '/placeholder.svg') {
+              target.src = '/placeholder.svg';
+            }
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-br from-sunrise-coral/10 via-transparent to-sky-blue/10" />

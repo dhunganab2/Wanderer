@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, MessageCircle, User, Compass, Settings, Heart, LogOut, LogIn, UserPlus, Bot } from 'lucide-react';
+import { MapPin, MessageCircle, User, Compass, Heart, LogOut, LogIn, UserPlus, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -166,10 +166,6 @@ export const DesktopNavigation: React.FC<NavigationProps> = ({ className }) => {
           {user ? (
             // Authenticated User Menu
             <>
-              <Button variant="ghost" size="icon">
-                <Settings className="w-5 h-5" />
-              </Button>
-              
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-10 w-10 rounded-full">
