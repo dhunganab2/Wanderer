@@ -68,10 +68,6 @@ interface TripPlanDisplayProps {
     };
   };
   className?: string;
-  onSelectionComplete?: (selections: {
-    selectedFlight?: number;
-    selectedHotel?: number;
-  }) => void;
 }
 
 interface ParsedTripPlan {
@@ -81,8 +77,6 @@ interface ParsedTripPlan {
   duration?: number;
   trip_type?: string;
   itinerary?: DayPlan[];
-  flights?: FlightOption[];
-  hotels?: HotelOption[];
   weather?: string;
   tips?: string[];
   budget?: string;
@@ -122,22 +116,56 @@ interface DayPlan {
   insider_tip?: string;
 }
 
-interface FlightOption {
-  airline?: string;
-  price?: string;
-  duration?: string;
-  type?: string;
-  departure?: string;
-  arrival?: string;
-}
 
-interface HotelOption {
-  name?: string;
-  price?: string;
-  rating?: string;
-  location?: string;
-  amenities?: string[];
-}
+// Helper function to extract destination from itinerary text
+const extractDestinationFromText = (text: string): string | null => {
+  if (!text) return null;
+  
+  // Look for city names in the text (Tokyo, New York, etc.)
+  const cityMatches = text.match(/(?:through|to|in|at|visit)\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|,|\.|!|\?)/g);
+  if (cityMatches && cityMatches.length > 0) {
+    // Extract the city name from the first match
+    const match = cityMatches[0].match(/(?:through|to|in|at|visit)\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|,|\.|!|\?)/);
+    if (match && match[1]) {
+      const city = match[1].trim();
+      // Filter out common words that aren't cities
+      if (!city.match(/^(Day|Morning|Afternoon|Evening|Night|Airport|Hotel|Station|Temple|Museum|Garden|Park|District|Center|Building|Palace|Castle|Bridge|River|Street|Avenue|Road|Market|Mall|Store|Restaurant|Cafe|Bar|Club)$/i)) {
+        return city;
+      }
+    }
+  }
+  
+  // Look for "Journey Through [City]" pattern
+  const journeyMatch = text.match(/Journey Through ([A-Z][a-zA-Z\s]+)/);
+  if (journeyMatch && journeyMatch[1]) {
+    return journeyMatch[1].trim();
+  }
+  
+  return null;
+};
+
+// Helper function to extract duration from itinerary text
+const extractDurationFromText = (text: string): string | null => {
+  if (!text) return null;
+  
+  // Look for "3-Day" pattern at the beginning
+  const dayMatch = text.match(/(\d+)-Day/i);
+  if (dayMatch && dayMatch[1]) {
+    return dayMatch[1];
+  }
+  
+  // Look for "Day 1", "Day 2", "Day 3" to count days
+  const dayMatches = text.match(/\*\*Day (\d+):/g);
+  if (dayMatches && dayMatches.length > 0) {
+    const maxDay = Math.max(...dayMatches.map(match => {
+      const dayNum = match.match(/\*\*Day (\d+):/);
+      return dayNum ? parseInt(dayNum[1]) : 0;
+    }));
+    return maxDay.toString();
+  }
+  
+  return null;
+};
 
 // Enhanced interfaces for database-fetched data
 interface DatabaseUserProfile {
@@ -161,10 +189,6 @@ interface DatabaseTripData {
   };
   itinerary_narrative?: {
     daily_plans?: any[];
-  };
-  interactive_cards?: {
-    flight_options?: any[];
-    accommodation_options?: any[];
   };
   weather_and_packing?: {
     current_conditions?: string;
@@ -195,166 +219,320 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
   const getUserDisplayName = (): string => {
     // Priority order for user name:
     // 1. User profile name from database
-    // 2. Travelers array from metadata
-    // 3. Fallback to 'Traveler'
+    // 2. Travelers array from plan
+    // 3. Travelers array from metadata
+    // 4. Return null if no data available
     if (metadata?.userProfile?.name) {
       return metadata.userProfile.name;
+    }
+
+    if (tripPlan.travelers && tripPlan.travelers.length > 0) {
+      return tripPlan.travelers[0];
     }
 
     if (metadata?.travelers && metadata.travelers.length > 0) {
       return metadata.travelers[0];
     }
 
-    return 'Traveler';
+    return 'Solo traveler';
   };
 
   // Helper function to get user-specific budget preferences
   const getUserBudget = (): string => {
+    // First check if we have parsed budget from rawData
+    if (tripPlan.budget) {
+      return tripPlan.budget;
+    }
+
+    // Check rawData directly
+    if (metadata?.rawData?.estimated_budget) {
+      return metadata.rawData.estimated_budget;
+    }
+
     if (metadata?.userProfile?.preferredBudget) {
       return metadata.userProfile.preferredBudget;
     }
 
-    if (metadata?.rawData?.budget) {
-      return metadata.rawData.budget;
-    }
-
-    return '$2,500-3,500';
+    return 'Budget not available';
   };
 
-  // Parse the trip plan content with enhanced multi-user support
-  const parseTripPlan = (content: string): ParsedTripPlan => {
-    const plan: ParsedTripPlan = {};
-
-    // Check if we have structured data from backend
-    if (metadata?.rawData) {
-      const rawData = metadata.rawData;
-      
-      // Extract from structured data with better fallbacks
-      plan.destination = rawData.trip_summary?.destination || 
-                       rawData.destination || 
-                       metadata.destination || 
-                       'Your Destination';
-      
-      // Handle travelers - prioritize user profile name over raw data
-      plan.travelers = metadata?.userProfile?.name ? 
-                      [metadata.userProfile.name] : 
-                      rawData.trip_summary?.travelers || 
-                      metadata.travelers || 
-                      ['Traveler'];
-      
-      plan.duration = rawData.trip_summary?.duration || 
-                     rawData.duration || 
-                     metadata.duration || 
-                     7;
-      
-      plan.trip_type = rawData.trip_type || 
-                      metadata.trip_type || 
-                      'solo';
-      
-      plan.budget = rawData.trip_summary?.estimated_budget || 
-                   rawData.budget || 
-                   metadata.userProfile?.preferredBudget || 
-                   '$2,500-3,500';
-      
-      plan.weather = rawData.weather_and_packing?.current_conditions || 
-                    rawData.weather || 
-                    'Perfect for exploring';
-      
-      plan.tips = rawData.local_insights?.cultural_tips || 
-                 rawData.tips || 
-                 [];
-      
-      // Parse structured itinerary with enhanced error handling
-      if (rawData.itinerary_narrative?.daily_plans) {
-        plan.itinerary = rawData.itinerary_narrative.daily_plans.map((day: any, index: number) => ({
-          day: day.day || index + 1,
-          theme: day.theme || `Day ${index + 1} Adventure`,
-          morning: day.morning || null,
-          afternoon: day.afternoon || null,
-          evening: day.evening || null,
-          daily_budget: day.daily_budget || '$100-150',
-          transportation: day.transportation || [],
-          insider_tip: day.insider_tip || null,
-        }));
-      }
-      
-      // Parse flight options with better data handling
-      if (rawData.interactive_cards?.flight_options) {
-        plan.flights = rawData.interactive_cards.flight_options.map((flight: any, index: number) => ({
-          airline: flight.airline || `Airline ${index + 1}`,
-          price: flight.price || '$500-800',
-          duration: flight.duration || '10-12 hours',
-          type: flight.type || 'Economy',
-          departure: flight.departure || 'TBD',
-          arrival: flight.arrival || 'TBD'
-        }));
-      }
-      
-      // Parse hotel options with enhanced data
-      if (rawData.interactive_cards?.accommodation_options) {
-        plan.hotels = rawData.interactive_cards.accommodation_options.map((hotel: any, index: number) => ({
-          name: hotel.name || `Hotel ${index + 1}`,
-          price: hotel.price || '$100-200/night',
-          rating: hotel.rating || '4.0/5',
-          location: hotel.location || 'City Center',
-          amenities: hotel.amenities || []
-        }));
+  // Helper function to parse text-based itinerary into structured format
+  const parseTextItinerary = (text: string, duration: number): DayPlan[] => {
+    const days: DayPlan[] = [];
+    
+    // Split by day markers (e.g., "**Day 1:", "Day 2:", etc.)
+    const dayMatches = text.match(/\*\*Day \d+:.*?\*\*[\s\S]*?(?=\*\*Day \d+:|$)/g);
+    
+    if (dayMatches) {
+      dayMatches.forEach((dayText, index) => {
+        const dayNumber = index + 1;
+        const titleMatch = dayText.match(/\*\*Day \d+:\s*(.*?)\*\*/);
+        const title = titleMatch ? titleMatch[1].trim() : `Day ${dayNumber}`;
+        
+        // Extract the main content after the title
+        const content = dayText.replace(/\*\*Day \d+:.*?\*\*/, '').trim();
+        
+        days.push({
+          day: dayNumber,
+          theme: title,
+          morning: {
+            activity: title,
+            description: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+            location: metadata?.rawData?.destination || 'Destination',
+            time: 'Full Day',
+            cost_estimate: 'See budget breakdown'
+          }
+        });
+      });
+    } else {
+      // Fallback: create simple day structure
+      for (let i = 1; i <= duration; i++) {
+        days.push({
+          day: i,
+          theme: `Day ${i}`,
+          morning: {
+            activity: `Day ${i} Activities`,
+            description: text.substring(0, 300) + '...',
+            location: metadata?.rawData?.destination || 'Destination',
+            time: 'Full Day',
+            cost_estimate: 'See budget breakdown'
+          }
+        });
       }
     }
     
-    // Enhanced fallback system for multiple users
-    if (!plan.destination) {
-      plan.destination = metadata?.destination || 'Your Destination';
-      plan.travelers = metadata?.userProfile?.name ? 
-                      [metadata.userProfile.name] : 
-                      metadata?.travelers || 
-                      ['Traveler'];
-      plan.duration = metadata?.duration || 7;
-      plan.trip_type = metadata?.trip_type || 'solo';
-      plan.budget = metadata?.userProfile?.preferredBudget || '$2,500-3,500';
-    }
-
-    return plan;
+    return days;
   };
 
-  const plan = parseTripPlan(content);
+  // Parse the trip plan content with proper backend data extraction
+  const parseTripPlan = (content: string): ParsedTripPlan => {
+    console.log('🔧 TripPlanDisplay: Parsing trip plan...');
+    console.log('🔧 Content length:', content.length);
+    console.log('🔧 Metadata received:', JSON.stringify(metadata, null, 2));
+    console.log('🔧 Raw data in metadata:', JSON.stringify(metadata?.rawData, null, 2));
+    
+    const parsedPlan: ParsedTripPlan = {};
 
-  // Derive weather details from structured text when available
+    // Check if we have structured data from backend
+    if (metadata?.rawData) {
+      console.log('✅ Found rawData in metadata!');
+      const rawData = metadata.rawData;
+
+      // Extract destination from rawData first, then parse from itinerary_text if needed
+      parsedPlan.destination = rawData.tripInfo?.destination ||
+                       rawData.destination ||
+                       extractDestinationFromText(rawData.itinerary_text) ||
+                       metadata.destination ||
+                       null;
+
+      console.log('🔧 Extracted destination:', parsedPlan.destination);
+
+      // Handle travelers from tripInfo.companions or travelers array
+      if (rawData.tripInfo?.companions) {
+        parsedPlan.travelers = [rawData.tripInfo.companions];
+      } else if (metadata?.userProfile?.name) {
+        parsedPlan.travelers = [metadata.userProfile.name];
+      } else if (metadata?.travelers) {
+        parsedPlan.travelers = metadata.travelers;
+      } else {
+        parsedPlan.travelers = null;
+      }
+
+      // Extract duration from rawData first, then parse from itinerary_text if needed
+      const durationStr = rawData.duration || 
+                         rawData.tripInfo?.duration || 
+                         extractDurationFromText(rawData.itinerary_text) ||
+                         metadata.duration;
+      console.log('🔧 Duration extraction - rawData.duration:', rawData.duration);
+      console.log('🔧 Duration extraction - extracted from text:', extractDurationFromText(rawData.itinerary_text));
+      console.log('🔧 Duration extraction - durationStr:', durationStr);
+      if (typeof durationStr === 'string') {
+        const match = durationStr.match(/(\d+)/);
+        parsedPlan.duration = match ? parseInt(match[1]) : null;
+      } else {
+        parsedPlan.duration = durationStr || null;
+      }
+      console.log('🔧 Final extracted duration:', parsedPlan.duration);
+
+      parsedPlan.trip_type = rawData.tripInfo?.travelStyle?.[0] ||
+                      metadata.trip_type ||
+                      'solo';
+
+      // Extract budget from rawData.estimated_budget or budget_breakdown
+      parsedPlan.budget = rawData.estimated_budget ||
+                   rawData.tripInfo?.budget ||
+                   metadata.userProfile?.preferredBudget ||
+                   null;
+      console.log('🔧 Extracted budget:', parsedPlan.budget);
+
+      // Extract weather from recommendations.weather or weather_info
+      parsedPlan.weather = rawData.recommendations?.weather ||
+                    rawData.weather_info ||
+                    rawData.weather ||
+                    null;
+      console.log('🔧 Extracted weather:', parsedPlan.weather);
+
+      // Extract tips from recommendations.travelTips or packing_tips
+      parsedPlan.tips = rawData.recommendations?.travelTips ||
+                 rawData.packing_tips ||
+                 rawData.tips ||
+                 [];
+      console.log('🔧 Extracted tips count:', parsedPlan.tips?.length);
+
+      // Extract accommodations from budget_breakdown or recommendations
+      parsedPlan.accommodations = rawData.recommendations?.accommodation ||
+                           rawData.accommodation ||
+                           (rawData.budget_breakdown?.accommodation ? 
+                             [{ name: 'Budget Accommodation', price: rawData.budget_breakdown.accommodation }] : 
+                             []);
+      console.log('🔧 Extracted accommodations:', parsedPlan.accommodations);
+
+      // Extract flights info from budget_breakdown or transportation
+      parsedPlan.flights = rawData.transportation?.flights ||
+                    rawData.flights ||
+                    (rawData.budget_breakdown ? 
+                      [{ airline: 'Multiple Airlines', price: 'See budget breakdown' }] : 
+                      []);
+      console.log('🔧 Extracted flights:', parsedPlan.flights);
+
+      // Parse itinerary from actual backend structure
+      if (rawData.itinerary && Array.isArray(rawData.itinerary)) {
+        console.log('🔧 Using structured itinerary data');
+        parsedPlan.itinerary = rawData.itinerary.map((day: any) => {
+          const dayPlan: DayPlan = {
+            day: day.day || 1,
+            theme: day.title || null,
+          };
+
+          // Extract activities and convert to morning/afternoon/evening format
+          if (day.activities && Array.isArray(day.activities)) {
+            const activities = day.activities;
+
+            // Find morning activity (before 12:00)
+            const morningActivity = activities.find((act: any) => {
+              const time = act.time || '';
+              const hour = parseInt(time.split(':')[0]) || 0;
+              return hour < 12;
+            });
+
+            if (morningActivity) {
+              dayPlan.morning = {
+                time: morningActivity.time || '',
+                activity: morningActivity.name || '',
+                location: morningActivity.location || '',
+                description: morningActivity.description || '',
+                cost_estimate: morningActivity.cost || '',
+                duration: morningActivity.duration || '',
+              };
+            }
+
+            // Find afternoon activity (12:00-17:00)
+            const afternoonActivity = activities.find((act: any) => {
+              const time = act.time || '';
+              const hour = parseInt(time.split(':')[0]) || 0;
+              return hour >= 12 && hour < 17;
+            });
+
+            if (afternoonActivity) {
+              dayPlan.afternoon = {
+                time: afternoonActivity.time || '',
+                activity: afternoonActivity.name || '',
+                location: afternoonActivity.location || '',
+                description: afternoonActivity.description || '',
+                cost_estimate: afternoonActivity.cost || '',
+              };
+            }
+
+            // Find evening activity (17:00+)
+            const eveningActivity = activities.find((act: any) => {
+              const time = act.time || '';
+              const hour = parseInt(time.split(':')[0]) || 0;
+              return hour >= 17;
+            });
+
+            if (eveningActivity) {
+              dayPlan.evening = {
+                time: eveningActivity.time || '',
+                activity: eveningActivity.name || '',
+                location: eveningActivity.location || '',
+                description: eveningActivity.description || '',
+                cost_estimate: eveningActivity.cost || '',
+              };
+            }
+          }
+
+          // Calculate daily budget from activities
+          const totalCost = day.activities?.reduce((sum: number, act: any) => {
+            const cost = act.cost || '';
+            const match = cost.match(/€?(\d+)/);
+            return sum + (match ? parseInt(match[1]) : 0);
+          }, 0) || 0;
+
+          dayPlan.daily_budget = totalCost > 0 ? `€${totalCost}` : null;
+
+          return dayPlan;
+        });
+      } else if (rawData.itinerary_text && typeof rawData.itinerary_text === 'string') {
+        // Parse the text-based itinerary into structured format
+        console.log('🔧 Using text-based itinerary data');
+        parsedPlan.itinerary = parseTextItinerary(rawData.itinerary_text, parsedPlan.duration || 5);
+      } else {
+        console.log('🔧 No itinerary data found, using empty array');
+        parsedPlan.itinerary = [];
+      }
+      
+      console.log('🔧 Final parsed plan:', JSON.stringify(parsedPlan, null, 2));
+    } else {
+      console.log('❌ No rawData found in metadata, using fallback parsing');
+      // Fallback to basic content parsing if no rawData
+      parsedPlan.destination = metadata?.destination || 'Unknown';
+      parsedPlan.duration = metadata?.duration ? parseInt(metadata.duration) : null;
+      parsedPlan.travelers = metadata?.travelers || null;
+      parsedPlan.trip_type = metadata?.trip_type || null;
+      parsedPlan.budget = null;
+      parsedPlan.weather = null;
+      parsedPlan.tips = [];
+      parsedPlan.accommodations = [];
+      parsedPlan.flights = [];
+      parsedPlan.itinerary = [];
+    }
+
+    return parsedPlan;
+  };
+
+  const tripPlan = parseTripPlan(content);
+
+  // Derive weather details from backend data
   const parsedWeather = (() => {
-    const text = metadata?.rawData?.weather_and_packing?.current_conditions || plan.weather || '';
+    const text = tripPlan.weather || '';
 
     // Check if weather data is unavailable
-    if (text.toLowerCase().includes('not available') || text.toLowerCase().includes('data not available')) {
+    if (!text || text.toLowerCase().includes('not available') || text.toLowerCase().includes('data not available')) {
       return {
-        temperature: 'N/A',
-        description: 'Weather data being gathered by specialists'
+        temperature: 'Not available',
+        description: 'Weather data not available'
       };
     }
 
     const tempMatch = text.match(/(-?\d+(?:\.\d+)?)\s*°?C/i);
     const descMatch = text.match(/:\s*([^,]+),\s*([^,]+)/) || text.match(/,\s*([^,]+)\s*,?/);
     return {
-      temperature: tempMatch ? `${Math.round(parseFloat(tempMatch[1]))}°C` : 'N/A',
-      description: descMatch ? (descMatch[2] || descMatch[1]).trim() : 'Perfect weather for your adventure'
+      temperature: tempMatch ? `${Math.round(parseFloat(tempMatch[1]))}°C` : 'Not available',
+      description: descMatch ? (descMatch[2] || descMatch[1]).trim() : text
     };
   })();
 
-  // Derived data from backend (with graceful fallbacks)
-  const packingRecommendations: string[] = (metadata?.rawData?.weather_and_packing?.packing_recommendations as string[] | undefined) || [];
+  // Derived data from backend structure
+  const packingRecommendations: string[] = metadata?.rawData?.recommendations?.packingList || [];
 
-  const bestActivityTimes: string = (metadata?.rawData?.weather_and_packing?.best_activity_times as string | undefined) || 'Early mornings for sightseeing, evenings for food tours';
+  const bestActivityTimes: string = metadata?.rawData?.recommendations?.bestActivityTimes || '';
 
-  const culturalTips: string[] = (metadata?.rawData?.local_insights?.cultural_tips as string[] | undefined) || [];
+  const culturalTips: string[] = metadata?.rawData?.recommendations?.culturalNotes || [];
 
-  // Handle language basics - agents return simple array of phrases
-  const languageBasics: Array<{ phrase: string; meaning: string }> = Array.isArray(metadata?.rawData?.local_insights?.language_basics)
-    ? (metadata!.rawData!.local_insights!.language_basics as string[]).map((phrase: string) => ({
-        phrase: phrase,
-        meaning: 'Basic phrase for local communication'
-      }))
-    : [];
+  // Handle language basics from backend
+  const languageBasics: Array<{ phrase: string; meaning: string }> = [];
 
-  const safetyNotes: string[] = (metadata?.rawData?.local_insights?.safety_notes as string[] | undefined) || [];
+  const safetyNotes: string[] = metadata?.rawData?.recommendations?.safetyInfo ? [metadata.rawData.recommendations.safetyInfo] : [];
 
   const toggleDay = (day: number) => {
     const newExpanded = new Set(expandedDays);
@@ -394,11 +572,11 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="space-y-1">
                   <p className="text-sm text-gray-300">Destination</p>
-                  <p className="text-xl font-bold text-white">{plan.destination}</p>
+                  <p className="text-xl font-bold text-white">{tripPlan.destination || 'Not available'}</p>
             </div>
                 <div className="space-y-1">
                   <p className="text-sm text-gray-300">Duration</p>
-                  <p className="text-xl font-bold text-white">{plan.duration} days</p>
+                  <p className="text-xl font-bold text-white">{tripPlan.duration ? `${tripPlan.duration} days` : 'Not available'}</p>
           </div>
                 <div className="space-y-1">
                   <p className="text-sm text-gray-300">Travelers</p>
@@ -473,7 +651,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
             {
               icon: Utensils,
               title: `Local Food Experiences`,
-              description: `Taste authentic ${plan.destination} cuisine and street food`,
+              description: `Taste authentic ${tripPlan.destination} cuisine and street food`,
               color: "from-sunrise-coral to-sunrise-coral/80",
               bgColor: "from-sunrise-coral/10 to-sunrise-coral/5",
               borderColor: "border-sunrise-coral/20"
@@ -481,7 +659,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
             {
               icon: Building,
               title: `Iconic Landmarks`,
-              description: `Handpicked must-see sights around ${plan.destination}`,
+              description: `Handpicked must-see sights around ${tripPlan.destination}`,
               color: "from-sky-blue to-sky-blue/80",
               bgColor: "from-sky-blue/10 to-sky-blue/5",
               borderColor: "border-sky-blue/20"
@@ -560,15 +738,17 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                         </div>
               </div>
               
-              <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sky-blue/20">
-                <div className="flex items-center space-x-3">
-                  <Umbrella className="w-6 h-6 text-sky-blue" />
-                          <div>
-                    <p className="text-lg font-bold text-foreground">Packing tip</p>
-                    <p className="text-sm text-muted-foreground">{packingRecommendations[0] || 'Bring light layers and a compact rain jacket'}</p>
+              {packingRecommendations.length > 0 && (
+                <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sky-blue/20">
+                  <div className="flex items-center space-x-3">
+                    <Umbrella className="w-6 h-6 text-sky-blue" />
+                            <div>
+                      <p className="text-lg font-bold text-foreground">Packing tip</p>
+                      <p className="text-sm text-muted-foreground">{packingRecommendations[0]}</p>
+                            </div>
                           </div>
-                        </div>
-                          </div>
+                            </div>
+              )}
                         </div>
                     </div>
         </div>
@@ -600,23 +780,16 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                     </motion.div>
                   ))}
                 </div>
-              ) : (
-                <div className="p-6 text-center bg-card border border-border/50 rounded-2xl">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sunset-pink to-sunrise-coral flex items-center justify-center">
-                    <Backpack className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Your packing specialist is preparing personalized recommendations based on your destination and activities.
+              ) : null}
+              
+              {bestActivityTimes && (
+                <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sunset-pink/20">
+                  <p className="text-sm flex items-center">
+                    <Clock className="w-5 h-5 mr-3 text-sunset-pink" />
+                    <span><strong>Best Activity Times:</strong> {bestActivityTimes}</span>
                   </p>
                 </div>
               )}
-              
-              <div className="p-4 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-sunset-pink/20">
-                <p className="text-sm flex items-center">
-                  <Clock className="w-5 h-5 mr-3 text-sunset-pink" />
-                  <span><strong>Best Activity Times:</strong> {bestActivityTimes}</span>
-                </p>
-              </div>
             </div>
           </div>
         </div>
@@ -639,99 +812,10 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
         </div>
         
         <div className="grid gap-4">
-          {plan.flights && plan.flights.length > 0 ? plan.flights.map((flight, index) => (
-                <motion.div
-                  key={index}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                "relative cursor-pointer transition-all duration-300 rounded-2xl border-2 p-6",
-                    selectedFlight === index
-                  ? "border-orange-500 bg-gradient-to-r from-orange-500/10 to-orange-500/5 shadow-lg"
-                  : "border-gray-600/30 hover:border-orange-500/50 bg-gray-800/50 hover:shadow-md"
-              )}
-              onClick={() => {
-                setSelectedFlight(index);
-                setShowConfirmButton(true);
-              }}
-            >
-              {selectedFlight === index && (
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-2 -right-2 w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center shadow-lg"
-                >
-                  <Check className="w-4 h-4 text-white" />
-                </motion.div>
-              )}
-              
-              <div className="flex items-start justify-between">
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center space-x-3">
-                    <Plane className="w-6 h-6 text-orange-500" />
-                    <div>
-                      <h3 className="text-lg font-bold text-white">{flight.airline}</h3>
-                      {flight.type && (
-                        <Badge variant="secondary" className="text-xs bg-gray-700 text-gray-200">
-                          {flight.type}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="flex items-center space-x-2">
-                      <DollarSign className="w-4 h-4 text-green-400" />
-                    <div>
-                        <p className="text-xs text-gray-400">Price</p>
-                        <p className="font-semibold text-green-400">{flight.price || '—'}</p>
-                    </div>
-                  </div>
-                    <div className="flex items-center space-x-2">
-                      <Clock className="w-4 h-4 text-purple-400" />
-                      <div>
-                        <p className="text-xs text-gray-400">Duration</p>
-                        <p className="font-semibold text-white">{flight.duration || '—'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <ArrowRight className="w-4 h-4 text-orange-500" />
-                      <div>
-                        <p className="text-xs text-gray-400">Departure</p>
-                        <p className="font-semibold text-white">{flight.departure || '—'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <MapPin className="w-4 h-4 text-yellow-500" />
-                      <div>
-                        <p className="text-xs text-gray-400">Arrival</p>
-                        <p className="font-semibold text-white">{flight.arrival || '—'}</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="p-3 bg-gradient-to-r from-orange-500/5 to-transparent rounded-xl">
-                    <p className="text-sm text-gray-300 flex items-center">
-                      <Lightbulb className="w-4 h-4 mr-2 text-orange-500" />
-                      <strong>Why:</strong> {flight.type ? `Good ${flight.type.toLowerCase()} value` : 'Balanced option'}
-                    </p>
-                  </div>
-                </div>
-                  </div>
-                </motion.div>
-              )) : (
-                <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
-                    <Plane className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground mb-2">Finding Best Flight Options</h3>
-                  <p className="text-muted-foreground">
-                    Your travel specialists are searching for the best flight deals and options.
-                    Real-time flight data will appear here once available.
-                  </p>
-                </div>
-              )}
-            </div>
+          <div className="p-8 text-center bg-gray-800/30 rounded-2xl border border-gray-600/20">
+            <p className="text-gray-400">Flight options will be available here once your trip planning is complete.</p>
+          </div>
+        </div>
       </div>
 
       {/* Hotel Options */}
@@ -747,155 +831,12 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
         </div>
         
         <div className="grid gap-4">
-          {plan.hotels && plan.hotels.length > 0 ? plan.hotels.map((hotel, index) => (
-                <motion.div
-                  key={index}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                "relative cursor-pointer transition-all duration-300 rounded-2xl border-2 p-6",
-                    selectedHotel === index
-                  ? "border-sunset-pink bg-gradient-to-r from-sunset-pink/10 to-sunset-pink/5 shadow-lg"
-                  : "border-border/30 hover:border-sunset-pink/50 bg-card hover:shadow-md"
-              )}
-              onClick={() => {
-                setSelectedHotel(index);
-                setShowConfirmButton(true);
-              }}
-            >
-              {selectedHotel === index && (
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-2 -right-2 w-8 h-8 bg-sunset-pink rounded-full flex items-center justify-center shadow-lg"
-                >
-                  <Check className="w-4 h-4 text-white" />
-                </motion.div>
-              )}
-              
-              <div className="flex items-start justify-between">
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center space-x-3">
-                    <Hotel className="w-6 h-6 text-sunset-pink" />
-                    <div>
-                      <h3 className="text-lg font-bold text-foreground">{hotel.name}</h3>
-                      {hotel.rating && (
-                        <div className="flex items-center space-x-2">
-                          <div className="flex items-center">
-                            {[...Array(5)].map((_, i) => (
-                              <Star key={i} className={cn("w-3 h-3", i < 4 ? "text-yellow-400 fill-current" : "text-gray-300")} />
-                            ))}
-                          </div>
-                          <span className="text-xs text-muted-foreground">{hotel.rating}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="flex items-center space-x-2">
-                      <DollarSign className="w-4 h-4 text-forest-green" />
-                    <div>
-                        <p className="text-xs text-muted-foreground">Price</p>
-                        <p className="font-semibold text-forest-green">{hotel.price}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <MapPin className="w-4 h-4 text-sky-blue" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Location</p>
-                        <p className="font-semibold text-sm">{hotel.location}</p>
-                  </div>
-                    </div>
-                    {hotel.amenities && hotel.amenities.length > 0 && (
-                      <div className="flex items-center space-x-2">
-                        <Building className="w-4 h-4 text-sunrise-coral" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Amenities</p>
-                          <p className="font-semibold text-sm">{hotel.amenities.slice(0,3).join(', ')}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {hotel.amenities && hotel.amenities.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">Amenities:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {hotel.amenities.slice(0,8).map((amenity, i) => (
-                          <Badge key={i} variant="outline" className="text-xs">
-                            {amenity}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="p-3 bg-gradient-to-r from-sunset-pink/5 to-transparent rounded-xl">
-                    <p className="text-sm text-muted-foreground flex items-center">
-                      <Lightbulb className="w-4 h-4 mr-2 text-sunset-pink" />
-                      <strong>Why:</strong> Great match for this itinerary
-                    </p>
-                  </div>
-                </div>
-                  </div>
-                </motion.div>
-              )) : (
-                <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sunset-pink to-purple-600 flex items-center justify-center">
-                    <Hotel className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground mb-2">Curating Perfect Accommodations</h3>
-                  <p className="text-muted-foreground">
-                    Your accommodation specialist is researching the best hotels that match your style and budget.
-                    Personalized recommendations will appear here shortly.
-                  </p>
-                </div>
-              )}
+          <div className="p-8 text-center bg-gray-800/30 rounded-2xl border border-gray-600/20">
+            <p className="text-gray-400">Accommodation options will be available here once your trip planning is complete.</p>
+          </div>
             </div>
       </div>
 
-      {/* Selection Confirmation */}
-      <AnimatePresence>
-        {showConfirmButton && (selectedFlight !== null || selectedHotel !== null) && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="bg-gradient-to-r from-forest-green/10 to-forest-green/5 border-2 border-forest-green/20 rounded-2xl p-6"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-foreground flex items-center">
-                  <CheckCircle2 className="w-5 h-5 text-forest-green mr-2" />
-                  Selections Made
-                </h3>
-                <div className="space-y-1 mt-2 text-sm text-muted-foreground">
-                  {selectedFlight !== null && (
-                    <p className="flex items-center">
-                      <Plane className="w-4 h-4 mr-2 text-sky-blue" />
-                      Flight: {(plan.flights || [])[selectedFlight]?.airline} ({(plan.flights || [])[selectedFlight]?.type})
-                    </p>
-                  )}
-                  {selectedHotel !== null && (
-                    <p className="flex items-center">
-                      <Hotel className="w-4 h-4 mr-2 text-sunset-pink" />
-                      Hotel: {(plan.hotels || [])[selectedHotel]?.name}
-                    </p>
-                  )}
-                </div>
-              </div>
-            <Button
-              onClick={handleConfirmSelections}
-                className="bg-gradient-sunrise text-white hover:shadow-glow transition-all duration-300"
-            >
-                <Check className="w-4 h-4 mr-2" />
-              Confirm Selections & Continue
-            </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 
@@ -912,7 +853,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
       </div>
 
       <div className="space-y-4">
-        {plan.itinerary && plan.itinerary.length > 0 ? plan.itinerary.map((day) => (
+        {tripPlan.itinerary && tripPlan.itinerary.length > 0 ? tripPlan.itinerary.map((day) => (
           <Card key={day.day} className="border border-border/50 shadow-soft overflow-hidden">
             <CardHeader 
               className="cursor-pointer hover:bg-muted/30 transition-colors"
@@ -1067,18 +1008,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               )}
             </AnimatePresence>
       </Card>
-        )) : (
-          <div className="p-8 text-center bg-card border border-border/50 rounded-2xl">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-sunset-pink to-sunrise-coral flex items-center justify-center">
-              <Calendar className="w-8 h-8 text-white" />
-            </div>
-            <h3 className="text-xl font-bold text-foreground mb-2">Itinerary Being Crafted</h3>
-            <p className="text-muted-foreground">
-              Your AI travel specialists are working hard to create the perfect day-by-day plan for your adventure.
-              Please wait while they coordinate the best experiences for you!
-            </p>
-          </div>
-        )}
+        )) : null}
       </div>
     </div>
   );
@@ -1117,14 +1047,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
                     </div>
-                  )) : (
-                    <div className="text-center py-4">
-                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-sunrise-coral to-sunset-pink flex items-center justify-center">
-                        <Camera className="w-4 h-4 text-white" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">Agent preparing recommendations...</p>
-                    </div>
-                  )}
+                  )) : null}
               </div>
               </div>
                 <div>
@@ -1138,14 +1061,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
                     </div>
-                  )) : (
-                    <div className="text-center py-4">
-                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
-                        <Phone className="w-4 h-4 text-white" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">Tech recommendations coming...</p>
-                    </div>
-                  )}
+                  )) : null}
                 </div>
                 </div>
                 <div>
@@ -1159,58 +1075,13 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                       <Check className="w-4 h-4 text-forest-green" />
                       <span>{item}</span>
                     </div>
-                  )) : (
-                    <div className="text-center py-4">
-                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-gradient-to-r from-forest-green to-emerald-500 flex items-center justify-center">
-                        <Gift className="w-4 h-4 text-white" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">Essential extras loading...</p>
-                    </div>
-                  )}
+                  )) : null}
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-        {/* Daily Budget Breakdown */}
-        <Card className="border border-border/50 shadow-soft">
-        <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <DollarSign className="w-5 h-5 text-forest-green" />
-              <span>Daily Budget Breakdown</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="text-center p-4 bg-gradient-to-r from-sunrise-coral/10 to-transparent rounded-xl">
-                <Utensils className="w-6 h-6 text-sunrise-coral mx-auto mb-2" />
-                <p className="font-semibold text-sunrise-coral">$40-60/day</p>
-                <p className="text-xs text-muted-foreground">Food</p>
-                </div>
-              <div className="text-center p-4 bg-gradient-to-r from-sky-blue/10 to-transparent rounded-xl">
-                <Train className="w-6 h-6 text-sky-blue mx-auto mb-2" />
-                <p className="font-semibold text-sky-blue">$15-25/day</p>
-                <p className="text-xs text-muted-foreground">Transport</p>
-                </div>
-              <div className="text-center p-4 bg-gradient-to-r from-forest-green/10 to-transparent rounded-xl">
-                <Camera className="w-6 h-6 text-forest-green mx-auto mb-2" />
-                <p className="font-semibold text-forest-green">$30-50/day</p>
-                <p className="text-xs text-muted-foreground">Activities</p>
-                </div>
-              <div className="text-center p-4 bg-gradient-to-r from-sunset-pink/10 to-transparent rounded-xl">
-                <Gift className="w-6 h-6 text-sunset-pink mx-auto mb-2" />
-                <p className="font-semibold text-sunset-pink">$20-40/day</p>
-                <p className="text-xs text-muted-foreground">Shopping</p>
-              </div>
-              <div className="text-center p-4 bg-gradient-to-r from-yellow-400/10 to-transparent rounded-xl border-2 border-yellow-400/20">
-                <TrendingUp className="w-6 h-6 text-yellow-600 mx-auto mb-2" />
-                <p className="font-bold text-yellow-600">$105-175/day</p>
-                <p className="text-xs text-muted-foreground">Total</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
         {/* Cultural Tips & Language */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1227,16 +1098,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   <Globe className="w-4 h-4 text-sky-blue" />
                   <span className="text-sm">{tip}</span>
                   </div>
-                )) : (
-                  <div className="text-center py-6">
-                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sky-blue to-purple-500 flex items-center justify-center">
-                      <Globe className="w-6 h-6 text-white" />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Cultural specialist is gathering local insights for your destination.
-                    </p>
-                  </div>
-                )}
+                )) : null}
             </CardContent>
           </Card>
 
@@ -1256,16 +1118,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
               </div>
 
                 </div>
-              )) : (
-                <div className="text-center py-6">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-sunset-pink to-purple-600 flex items-center justify-center">
-                    <Languages className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Language specialist is preparing essential phrases for your trip.
-                  </p>
-                </div>
-              )}
+              )) : null}
         </CardContent>
       </Card>
         </div>
@@ -1285,16 +1138,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                   <Shield className="w-4 h-4 text-forest-green" />
                   <span className="text-sm">{tip}</span>
                 </div>
-              )) : (
-                <div className="col-span-2 text-center py-6">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gradient-to-r from-forest-green to-emerald-500 flex items-center justify-center">
-                    <Shield className="w-6 h-6 text-white" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Safety specialist is preparing personalized recommendations for your destination.
-                  </p>
-                </div>
-              )}
+              )) : null}
               </div>
           </CardContent>
         </Card>
@@ -1326,7 +1170,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
             </div>
             
           <p className="text-xl text-gray-300 max-w-4xl mx-auto leading-relaxed">
-            🌟 Hey {getUserDisplayName()}! I've crafted the perfect {plan.duration}-day {plan.destination} adventure tailored to your love for culture, food, and authentic experiences!
+            🌟 Hey {getUserDisplayName()}! I've crafted the perfect {tripPlan.duration}-day {tripPlan.destination} adventure tailored to your love for culture, food, and authentic experiences!
           </p>
           
           {/* Modern Stats Grid */}
@@ -1337,7 +1181,7 @@ const TripPlanDisplay: React.FC<TripPlanDisplayProps> = ({
                 </div>
               <div className="text-left">
                 <p className="text-sm text-gray-400">Duration</p>
-                <p className="font-bold text-white">{plan.duration} days</p>
+                <p className="font-bold text-white">{tripPlan.duration} days</p>
               </div>
             </div>
             <div className="flex items-center justify-center space-x-3 p-4 bg-gray-700/60 backdrop-blur-sm rounded-2xl border border-gray-600/40">

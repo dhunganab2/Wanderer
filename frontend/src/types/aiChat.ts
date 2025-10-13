@@ -6,13 +6,14 @@ export interface AIChatMessage {
   role: 'user' | 'assistant';
   timestamp: string;
   isTyping?: boolean;
-  type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'trip_plan_with_feedback' | 'welcome';
+  type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'trip_plan_with_feedback' | 'welcome' | 'status_update';
   metadata?: {
     destination?: string;
     travelers?: string[];
     duration?: number;
     trip_type?: 'solo' | 'group';
     rawData?: any;
+    allowsFeedback?: boolean;
     userProfile?: {
       name?: string;
       age?: number;
@@ -42,6 +43,8 @@ export interface AIChatSession {
 }
 
 export interface AIUserContext {
+  userId?: string;
+  currentUser?: string;
   userProfile?: {
     name?: string;
     age?: number;
@@ -67,13 +70,14 @@ export interface AIChatResponse {
     message: string;
     timestamp: string;
     conversationId?: string;
-    type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'trip_plan_with_feedback' | 'welcome';
+    type?: 'chat' | 'trip_plan' | 'interactive_trip_plan' | 'trip_plan_with_feedback' | 'welcome' | 'status_update';
     metadata?: {
       destination?: string;
       travelers?: string[];
       duration?: number;
       trip_type?: 'solo' | 'group';
       rawData?: any;
+      allowsFeedback?: boolean;
       userProfile?: {
         name?: string;
         age?: number;

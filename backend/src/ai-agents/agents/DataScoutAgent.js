@@ -132,26 +132,53 @@ OUTPUT REQUIREMENTS:
         api_key: this.apiKeys.serpapi
       });
 
-      const response = await fetch(`${this.apiEndpoints.flights}?${params}`, {
+      const apiUrl = `${this.apiEndpoints.flights}?${params}`;
+      console.log(`🔍 Flight API URL: ${apiUrl.replace(this.apiKeys.serpapi, 'API_KEY_HIDDEN')}`);
+
+      const response = await fetch(apiUrl, {
         timeout: 10000
       });
 
+      console.log(`📡 Flight API Response Status: ${response.status}`);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Flight API error response: ${errorText.substring(0, 200)}`);
         throw new Error(`Flight API error: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log(`📊 Flight API Response:`, {
+        has_best_flights: !!data.best_flights,
+        best_flights_count: data.best_flights?.length || 0,
+        has_other_flights: !!data.other_flights,
+        other_flights_count: data.other_flights?.length || 0,
+        has_error: !!data.error
+      });
+
+      if (data.error) {
+        console.error(`❌ SerpAPI Error:`, data.error);
+        return this.getFlightFallback(destination, departureCity);
+      }
 
       if (data.best_flights && data.best_flights.length > 0) {
-        return this.processFlightData(data.best_flights.slice(0, 3));
+        console.log(`✅ Using ${data.best_flights.length} REAL flight options from best_flights`);
+        const processedFlights = this.processFlightData(data.best_flights.slice(0, 3));
+        console.log(`✈️ Processed Flight Data:`, JSON.stringify(processedFlights, null, 2));
+        return processedFlights;
       } else if (data.other_flights && data.other_flights.length > 0) {
-        return this.processFlightData(data.other_flights.slice(0, 3));
+        console.log(`✅ Using ${data.other_flights.length} REAL flight options from other_flights`);
+        const processedFlights = this.processFlightData(data.other_flights.slice(0, 3));
+        console.log(`✈️ Processed Flight Data:`, JSON.stringify(processedFlights, null, 2));
+        return processedFlights;
       } else {
+        console.log('⚠️ No flight data in API response, using fallback');
         return this.getFlightFallback(destination, departureCity);
       }
 
     } catch (error) {
-      console.log('Flight API error, using fallback:', error.message);
+      console.error('❌ Flight API error, using fallback:', error.message);
+      console.error('Stack:', error.stack);
       return this.getFlightFallback(destination, departureCity);
     }
   }
@@ -160,7 +187,9 @@ OUTPUT REQUIREMENTS:
    * Get hotel data using SerpAPI
    */
   async getHotelData(destination, travelDates = null, duration = 7) {
-    console.log(`🏨 Fetching hotel data for ${destination} using SerpAPI...`);
+    // Use main city for hotel search
+    const hotelCity = this.getMainCity(destination);
+    console.log(`🏨 Fetching hotel data for ${hotelCity} (from destination: ${destination}) using SerpAPI...`);
 
     if (!this.apiKeys.serpapi || this.apiKeys.serpapi === 'your-serpapi-key-here') {
       console.log('⚠️ SerpAPI key not configured, using fallback hotel data');
@@ -168,11 +197,26 @@ OUTPUT REQUIREMENTS:
     }
 
     try {
+      // Ensure dates are valid Date objects
+      let checkInDate = travelDates?.checkin;
+      let checkOutDate = travelDates?.checkout;
+      
+      console.log(`📅 Hotel dates input:`, { checkInDate, checkOutDate, duration });
+      
+      if (!checkInDate || !(checkInDate instanceof Date) || isNaN(checkInDate.getTime())) {
+        checkInDate = this.getDefaultDepartureDate();
+        console.log(`📅 Using default check-in date: ${checkInDate}`);
+      }
+      if (!checkOutDate || !(checkOutDate instanceof Date) || isNaN(checkOutDate.getTime())) {
+        checkOutDate = this.getDefaultReturnDate(duration);
+        console.log(`📅 Using default check-out date: ${checkOutDate}`);
+      }
+
       const params = new URLSearchParams({
         engine: 'google_hotels',
-        q: `hotels in ${destination}`,
-        check_in_date: this.formatDate(travelDates?.checkin || this.getDefaultDepartureDate()),
-        check_out_date: this.formatDate(travelDates?.checkout || this.getDefaultReturnDate(duration)),
+        q: `hotels in ${hotelCity}`,
+        check_in_date: this.formatDate(checkInDate),
+        check_out_date: this.formatDate(checkOutDate),
         adults: '1',
         currency: 'USD',
         gl: 'us',
@@ -180,33 +224,87 @@ OUTPUT REQUIREMENTS:
         api_key: this.apiKeys.serpapi
       });
 
-      const response = await fetch(`${this.apiEndpoints.hotels}?${params}`, {
+      const apiUrl = `${this.apiEndpoints.hotels}?${params}`;
+      console.log(`🔍 Hotel API URL: ${apiUrl.replace(this.apiKeys.serpapi, 'API_KEY_HIDDEN')}`);
+
+      const response = await fetch(apiUrl, {
         timeout: 10000
       });
 
+      console.log(`📡 Hotel API Response Status: ${response.status}`);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Hotel API error response: ${errorText.substring(0, 200)}`);
         throw new Error(`Hotel API error: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log(`📊 Hotel API Response:`, {
+        has_properties: !!data.properties,
+        properties_count: data.properties?.length || 0,
+        has_error: !!data.error
+      });
+
+      if (data.error) {
+        console.error(`❌ SerpAPI Hotel Error:`, data.error);
+        return this.getHotelFallback(destination);
+      }
 
       if (data.properties && data.properties.length > 0) {
-        return this.processHotelData(data.properties.slice(0, 3));
+        console.log(`✅ Using ${data.properties.length} REAL hotel options from API`);
+        const processedHotels = this.processHotelData(data.properties.slice(0, 3));
+        console.log(`🏨 Processed Hotel Data:`, JSON.stringify(processedHotels, null, 2));
+        return processedHotels;
       } else {
+        console.log('⚠️ No hotel data in API response, using fallback');
         return this.getHotelFallback(destination);
       }
 
     } catch (error) {
-      console.log('Hotel API error, using fallback:', error.message);
+      console.error('❌ Hotel API error, using fallback:', error.message);
+      console.error('Stack:', error.stack);
       return this.getHotelFallback(destination);
     }
+  }
+
+  /**
+   * Get main city for weather/hotel lookups (e.g., "Italy" → "Rome", "France" → "Paris")
+   */
+  getMainCity(destination) {
+    const cityMap = {
+      'italy': 'Rome',
+      'france': 'Paris',
+      'spain': 'Madrid',
+      'germany': 'Berlin',
+      'uk': 'London',
+      'united kingdom': 'London',
+      'japan': 'Tokyo',
+      'china': 'Beijing',
+      'india': 'Delhi',
+      'usa': 'New York',
+      'united states': 'New York',
+      'australia': 'Sydney',
+      'canada': 'Toronto',
+      'mexico': 'Mexico City',
+      'brazil': 'Rio de Janeiro',
+      'thailand': 'Bangkok',
+      'vietnam': 'Hanoi',
+      'korea': 'Seoul',
+      'south korea': 'Seoul'
+    };
+    
+    const normalized = destination.toLowerCase().trim();
+    return cityMap[normalized] || destination;
   }
 
   /**
    * Get weather data using OpenWeatherMap
    */
   async getWeatherData(destination) {
-    console.log(`🌤️ Fetching weather data for ${destination} using OpenWeatherMap...`);
+    // Get specific city for weather lookup (e.g., "Italy" → "Rome")
+    const weatherCity = this.getMainCity(destination);
+    console.log(`🌤️ Fetching weather data for ${weatherCity} (from destination: ${destination}) using OpenWeatherMap...`);
 
     if (!this.apiKeys.openweather || this.apiKeys.openweather === 'your-openweather-key-here') {
       console.log('⚠️ OpenWeatherMap API key not configured, using fallback weather data');
@@ -214,8 +312,8 @@ OUTPUT REQUIREMENTS:
     }
 
     try {
-      const currentWeatherUrl = `${this.apiEndpoints.openweather}/weather?q=${encodeURIComponent(destination)}&appid=${this.apiKeys.openweather}&units=metric`;
-      const forecastUrl = `${this.apiEndpoints.openweather}/forecast?q=${encodeURIComponent(destination)}&appid=${this.apiKeys.openweather}&units=metric`;
+      const currentWeatherUrl = `${this.apiEndpoints.openweather}/weather?q=${encodeURIComponent(weatherCity)}&appid=${this.apiKeys.openweather}&units=metric`;
+      const forecastUrl = `${this.apiEndpoints.openweather}/forecast?q=${encodeURIComponent(weatherCity)}&appid=${this.apiKeys.openweather}&units=metric`;
 
       const [currentResponse, forecastResponse] = await Promise.all([
         fetch(currentWeatherUrl, { timeout: 8000 }),
@@ -223,7 +321,8 @@ OUTPUT REQUIREMENTS:
       ]);
 
       let weatherData = {
-        destination,
+        destination: destination,
+        searchedCity: weatherCity,
         timestamp: new Date().toISOString()
       };
 
@@ -244,6 +343,7 @@ OUTPUT REQUIREMENTS:
         weatherData.forecast = this.processForecastData(forecast.list?.slice(0, 5) || []);
       }
 
+      console.log(`✅ Weather data received for ${weatherData.current?.city || weatherCity}`);
       return weatherData;
 
     } catch (error) {
@@ -595,7 +695,15 @@ Format as a comprehensive local guide.`;
 
   getDefaultReturnDate(duration = 7) {
     const date = this.getDefaultDepartureDate();
-    date.setDate(date.getDate() + duration);
+    // Parse duration if it's a string like "4 days" or "7"
+    let numDays = 7;
+    if (typeof duration === 'string') {
+      const match = duration.match(/(\d+)/);
+      numDays = match ? parseInt(match[1], 10) : 7;
+    } else if (typeof duration === 'number') {
+      numDays = duration;
+    }
+    date.setDate(date.getDate() + numDays);
     return date;
   }
 

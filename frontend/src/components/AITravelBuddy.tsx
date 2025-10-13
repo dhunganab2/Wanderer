@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { cn } from '../lib/utils';
 import type { AIChatProps, AIChatMessage } from '../types/aiChat';
 import useAITravelBuddy from '../hooks/useAITravelBuddy';
-import TripPlanDisplay from './TripPlanDisplay';
 
 
 const AITravelBuddy: React.FC<AIChatProps> = ({
@@ -85,12 +84,35 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
   };
 
   const formatMessage = (content: string) => {
-    // Basic markdown-like formatting
+    // Enhanced markdown formatting for structured trip plans with dark mode support
     return content
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/```(.*?)```/gs, '<code class="block bg-muted p-2 rounded my-2">$1</code>')
-      .replace(/`(.*?)`/g, '<code class="bg-muted px-1 rounded">$1</code>');
+      // H3 headers (### Header)
+      .replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold text-foreground mt-4 mb-2">$1</h3>')
+      // H2 headers (## Header)
+      .replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold text-foreground mt-4 mb-2">$1</h2>')
+      // Horizontal rules (---)
+      .replace(/^---$/gm, '<hr class="my-4 border-border"/>')
+      // Checkboxes [ ]
+      .replace(/^\* \[ \]\s+(.+)$/gm, '<div class="ml-4 my-1 flex items-start text-foreground"><span class="mr-2">☐</span><span>$1</span></div>')
+      .replace(/^\*\s+\[\s+\]\s+(.+)$/gm, '<div class="ml-4 my-1 flex items-start text-foreground"><span class="mr-2">☐</span><span>$1</span></div>')
+      // Bold text
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
+      // Italic text (after bold to avoid conflicts)
+      .replace(/\*([^\*]+?)\*/g, '<em class="text-muted-foreground">$1</em>')
+      // Code blocks
+      .replace(/```(.*?)```/gs, '<code class="block bg-muted p-2 rounded my-2 text-foreground">$1</code>')
+      // Inline code
+      .replace(/`(.*?)`/g, '<code class="bg-muted px-1 rounded text-foreground">$1</code>')
+      // Numbered lists (1. 2. 3.)
+      .replace(/^(\d+)\.\s+(.+)$/gm, '<div class="ml-4 my-1 text-foreground">$1. $2</div>')
+      // Main bullet points (* at start of line)
+      .replace(/^\*\s+(.+)$/gm, '<div class="ml-4 my-1 text-foreground">• $1</div>')
+      // Nested bullet points (4 spaces + * for indentation)
+      .replace(/^    \*\s+(.+)$/gm, '<div class="ml-8 my-0.5 text-sm text-muted-foreground">  ‣ $1</div>')
+      // Convert double line breaks to paragraph spacing
+      .replace(/\n\n/g, '<br/><br/>')
+      // Convert single line breaks
+      .replace(/\n/g, '<br/>');
   };
 
   const renderMessage = (message: AIChatMessage) => {
@@ -106,19 +128,17 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className={cn(
           'flex w-full mb-4',
-          message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'justify-center' : (isUser ? 'justify-end' : 'justify-start')
+          isUser ? 'justify-end' : 'justify-start'
         )}
       >
         <div
           className={cn(
-            message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback' ? 'w-full' : 'max-w-[85%]',
-            'rounded-2xl px-3 py-2 text-sm leading-relaxed',
-            'shadow-sm',
+            'max-w-[95%]',
+            'rounded-2xl px-4 py-3 text-sm leading-relaxed',
+            'shadow-sm whitespace-pre-wrap break-words',
             isUser
               ? 'bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-white ml-4 shadow-lg'
-              : message.type === 'trip_plan' || message.type === 'trip_plan_with_feedback'
-                ? 'bg-transparent border-none mr-0 px-0 py-0'
-                : 'bg-gradient-to-br from-gray-50 to-white text-gray-800 border border-gray-200 mr-4 shadow-md hover:shadow-lg',
+              : 'bg-gradient-to-br from-gray-50 to-white text-gray-800 border border-gray-200 mr-4 shadow-md hover:shadow-lg',
             'transition-all duration-200'
           )}
         >
@@ -131,15 +151,6 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
               </div>
               <span className="text-gray-500 ml-2">WanderBuddy is typing...</span>
             </div>
-          ) : (message.type === 'trip_plan' || message.type === 'interactive_trip_plan' || message.type === 'trip_plan_with_feedback') ? (
-            <TripPlanDisplay
-              content={message.content}
-              metadata={{
-                ...message.metadata,
-                rawData: message.metadata?.rawData
-              }}
-              className="w-full"
-            />
           ) : (
             <div
               dangerouslySetInnerHTML={{
@@ -225,7 +236,7 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
         'fixed z-50',
         initialPosition === 'right' ? 'right-4' : 'left-4',
         'bottom-4',
-        isMinimized ? 'w-64 h-12' : 'w-72 h-[26rem]',
+        isMinimized ? 'w-64 h-12' : 'w-96 h-[36rem]',
         'transition-all duration-300',
         className
       )}
