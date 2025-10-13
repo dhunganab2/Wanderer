@@ -37,10 +37,10 @@ const features = [
 ];
 
 const stats = [
-  { number: '50K+', label: 'Active Travelers' },
-  { number: '180+', label: 'Countries' },
-  { number: '2M+', label: 'Connections Made' },
-  { number: '4.9★', label: 'Average Rating' },
+  { number: '1.2K+', label: 'Active Travelers' },
+  { number: '45+', label: 'Countries' },
+  { number: '3.8K+', label: 'Connections Made' },
+  { number: '4.6★', label: 'Average Rating' },
 ];
 
 export default function Landing() {

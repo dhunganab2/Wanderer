@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Google Maps - Embed API</title>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>Interactive Google Maps</h1>
+        <p>Real-world map data with Google Maps Embed API</p>
+        <div class="api-key-notice">
+            <strong>⚠️ Important:</strong> Replace 'YOUR_API_KEY_HERE' in script.js with your actual Google Maps API key
+        </div>
+    </header>
+
+    <!-- Location Controls -->
+    <div class="controls">
+        <button id="change-location" class="btn">Change Location</button>
+        <select id="location-select" class="select">
+            <option value="New+York,NY">New York, NY</option>
+            <option value="London,UK">London, UK</option>
+            <option value="Tokyo,Japan">Tokyo, Japan</option>
+            <option value="Paris,France">Paris, France</option>
+            <option value="Sydney,Australia">Sydney, Australia</option>
+            <option value="San+Francisco,CA">San Francisco, CA</option>
+        </select>
+        <button id="current-location" class="btn">Use My Location</button>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map-container">
+        <!-- Google Maps Embed iframe will be inserted here by JavaScript -->
+        <div class="loading">Loading map...</div>
+    </div>
+
+    <!-- Map Info -->
+    <div class="map-info">
+        <h3>Map Features</h3>
+        <ul>
+            <li>✅ Real Google Maps data</li>
+            <li>✅ Interactive zoom and pan</li>
+            <li>✅ Street View integration</li>
+            <li>✅ Mobile-friendly responsive design</li>
+            <li>✅ Dynamic location switching</li>
+        </ul>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2024 Interactive Map App. Powered by Google Maps Embed API.</p>
+        <p><small>Requires valid Google Maps API key with Maps Embed API enabled.</small></p>
+    </footer>
+
+    <!-- Custom JavaScript -->
+    <script src="script.js"></script>
+</body>
+</html>
