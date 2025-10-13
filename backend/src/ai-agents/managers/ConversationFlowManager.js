@@ -86,8 +86,8 @@ export default class ConversationFlowManager {
         const extracted = this.extractTripDetails(message, userContext);
         analysis.extractedInfo = extracted;
 
-        // Determine if we have enough info
-        const requiredFields = ['destination', 'duration', 'travelers'];
+        // Determine if we have enough info (including new required fields)
+        const requiredFields = ['destination', 'duration', 'travelers', 'departureCity', 'budgetPreference'];
         const missingFields = requiredFields.filter(field => !extracted[field]);
 
         if (missingFields.length === 0) {
@@ -160,8 +160,8 @@ export default class ConversationFlowManager {
 
     analysis.extractedInfo = mergedInfo;
 
-    // Check what's still missing
-    const requiredFields = ['destination', 'duration', 'travelers'];
+    // Check what's still missing (including new required fields)
+    const requiredFields = ['destination', 'duration', 'travelers', 'departureCity', 'budgetPreference'];
     const missingFields = requiredFields.filter(field => !mergedInfo[field] ||
       (Array.isArray(mergedInfo[field]) && mergedInfo[field].length === 0));
 
@@ -230,7 +230,9 @@ export default class ConversationFlowManager {
       travelers: [],
       budget: null,
       interests: [],
-      startDate: null
+      startDate: null,
+      departureCity: null,
+      budgetPreference: null
     };
 
     // Extract destination
@@ -289,6 +291,44 @@ export default class ConversationFlowManager {
       const match = message.match(pattern);
       if (match) {
         details.budget = match[1] || match[0];
+        break;
+      }
+    }
+
+    // Extract departure city (from where they're flying)
+    const departureCityPatterns = [
+      /(?:from|flying from|leaving from|departing from)\s+([A-Za-z\s,]{3,30})/i,
+      /(?:i'm in|i am in|based in|living in)\s+([A-Za-z\s,]{3,30})/i,
+      /starting from\s+([A-Za-z\s,]{3,30})/i
+    ];
+
+    for (const pattern of departureCityPatterns) {
+      const match = message.match(pattern);
+      if (match && match[1] && match[1].trim().length > 2) {
+        details.departureCity = match[1].trim().replace(/\s+/g, ' ');
+        break;
+      }
+    }
+
+    // Extract budget preference (Budget/Mid-range/Luxury)
+    const budgetPreferencePatterns = [
+      /\b(budget|cheap|affordable|economical)\s+(?:travel|trip|hotels?|accommodation)/i,
+      /\b(mid-range|mid range|moderate|average)\s+(?:travel|trip|hotels?|accommodation)/i,
+      /\b(luxury|luxurious|high-end|premium|upscale)\s+(?:travel|trip|hotels?|accommodation)/i,
+      /(?:travel|trip|hotels?|accommodation)\s+(?:on a\s+)?(budget|cheap|mid-range|luxury)/i
+    ];
+
+    for (const pattern of budgetPreferencePatterns) {
+      const match = message.match(pattern);
+      if (match) {
+        const preference = match[1].toLowerCase();
+        if (preference === 'budget' || preference === 'cheap' || preference === 'affordable' || preference === 'economical') {
+          details.budgetPreference = 'Budget';
+        } else if (preference.includes('mid') || preference === 'moderate' || preference === 'average') {
+          details.budgetPreference = 'Mid-range';
+        } else if (preference === 'luxury' || preference === 'luxurious' || preference.includes('high-end') || preference === 'premium' || preference === 'upscale') {
+          details.budgetPreference = 'Luxury';
+        }
         break;
       }
     }
@@ -408,6 +448,18 @@ export default class ConversationFlowManager {
         "Solo journey or bringing company?",
         "Traveling with friends, family, or flying solo?",
         "Who else is coming along for the ride?"
+      ],
+      departureCity: [
+        "Where will you be flying from?",
+        "What city are you departing from?",
+        "Which city will you start your journey from?",
+        "Where's home base for this adventure?"
+      ],
+      budgetPreference: [
+        "What's your accommodation style - budget-friendly, mid-range, or luxury?",
+        "Are you looking for budget, mid-range, or luxury hotels?",
+        "What's your preferred accommodation level for this trip?",
+        "Would you prefer budget, mid-range, or luxury travel?"
       ]
     };
 

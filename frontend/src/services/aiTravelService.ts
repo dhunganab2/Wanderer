@@ -11,7 +11,7 @@ class AITravelService {
   private timeout: number;
 
   constructor(config?: AIServiceConfig) {
-    this.baseUrl = config?.baseUrl || 'http://localhost:3001/api/ai/v2';
+    this.baseUrl = config?.baseUrl || 'http://localhost:3001/api/ai/v3';
     this.timeout = config?.timeout || 120000; // 2 minutes for complex trip planning
   }
 
@@ -79,6 +79,8 @@ class AITravelService {
   ): Promise<AIChatResponse> {
     try {
       console.log('🤖 Sending message to backend:', message);
+      console.log('🤖 Using endpoint:', `${this.baseUrl}/chat`);
+      
       const response = await this.makeRequest<AIChatResponse>('/chat', {
         method: 'POST',
         body: JSON.stringify({
@@ -86,10 +88,12 @@ class AITravelService {
           userContext: userContext || {}
         }),
       }, userContext);
-      console.log('🤖 Backend response:', response);
       
-      // Handle the response properly
+      console.log('🤖 Backend response received:', response);
+      
+      // Handle the response properly - backend is working, don't fall back to mock
       if (response.success && response.data) {
+        console.log('✅ Using real backend response');
         // Check if the message is a structured trip plan response
         if (response.data.message && typeof response.data.message === 'object' && response.data.message.content) {
           return {
@@ -119,13 +123,24 @@ class AITravelService {
           };
         }
       } else {
+        console.error('❌ Backend returned unsuccessful response:', response);
         throw new Error(response.error || 'Backend returned unsuccessful response');
       }
     } catch (error) {
-      console.error('AI Chat Service - Send Message Error:', error);
-      console.log('🤖 Falling back to mock response');
-      // Fallback to mock if backend fails
-      return await this.getMockResponse(message, userContext);
+      console.error('❌ AI Chat Service - Send Message Error:', error);
+      console.error('❌ Error details:', error.message);
+      
+      // Only fall back to mock if there's a real network error
+      if (error.message.includes('Failed to fetch') || error.message.includes('Network')) {
+        console.log('🔄 Network error - falling back to mock response');
+        return await this.getMockResponse(message, userContext);
+      } else {
+        // For other errors, return them as error responses
+        return {
+          success: false,
+          error: error.message || 'Failed to process message'
+        };
+      }
     }
   }
 
@@ -169,20 +184,30 @@ class AITravelService {
 
   async getWelcomeMessage(userContext?: AIUserContext): Promise<AIWelcomeResponse> {
     try {
+      console.log('🤖 Requesting welcome message from backend');
       // Try to get personalized welcome from backend first
-      try {
-        const response = await this.makeRequest<AIWelcomeResponse>('/welcome', {
-          method: 'POST',
-          body: JSON.stringify({
-            userProfile: userContext?.userProfile || {}
-          }),
-        }, userContext);
+      const response = await this.makeRequest<AIWelcomeResponse>('/welcome', {
+        method: 'POST',
+        body: JSON.stringify({
+          userProfile: userContext?.userProfile || {}
+        }),
+      }, userContext);
 
-        if (response.success && response.data) {
-          return response;
-        }
-      } catch (error) {
-        console.log('Backend welcome failed, using fallback');
+      if (response.success && response.data) {
+        console.log('✅ Using real backend welcome message');
+        return response;
+      } else {
+        console.log('⚠️ Backend welcome failed, using fallback');
+        throw new Error(response.error || 'Backend welcome failed');
+      }
+    } catch (error) {
+      console.error('❌ Backend welcome failed:', error);
+      
+      // Only use fallback for network errors
+      if (error.message.includes('Failed to fetch') || error.message.includes('Network')) {
+        console.log('🔄 Network error - using fallback welcome message');
+      } else {
+        console.log('🔄 Backend error - using fallback welcome message');
       }
 
       // Fallback to personalized mock welcome
@@ -213,12 +238,6 @@ class AITravelService {
           message: personalizedMessage,
           timestamp: new Date().toISOString()
         }
-      };
-    } catch (error) {
-      console.error('AI Chat Service - Welcome Message Error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get welcome message'
       };
     }
   }

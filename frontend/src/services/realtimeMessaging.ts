@@ -104,6 +104,17 @@ class RealtimeMessagingService {
       // Re-join conversations
       this.rejoinConversations();
       
+      // Re-setup AI status update listener if it exists
+      const aiStatusCallback = this.listeners.get('ai_status_update');
+      if (aiStatusCallback) {
+        console.log('🔄 Re-setting up AI status update listener after reconnection');
+        this.socket.off('ai_status_update'); // Remove any existing listener
+        this.socket.on('ai_status_update', (data) => {
+          console.log('🎯 WebSocket received ai_status_update event:', data);
+          aiStatusCallback(data);
+        });
+      }
+      
       this.notifyListeners('connected', { connected: true });
     });
 
@@ -117,6 +128,20 @@ class RealtimeMessagingService {
       console.error('Connection error:', error);
       this.isConnected = false;
       this.notifyListeners('connection_error', { error: error.message });
+    });
+
+    // Debug: Listen for ALL events to see what's being received
+    this.socket.onAny((eventName, ...args) => {
+      console.log('🔍 WebSocket received event:', eventName, args);
+    });
+    
+    // Additional debug for specific events
+    this.socket.on('ai_status_update', (data) => {
+      console.log('🎯 DIRECT ai_status_update received:', data);
+    });
+    
+    this.socket.on('test_message', (data) => {
+      console.log('🧪 Test message received:', data);
     });
 
     // Message events
@@ -374,14 +399,24 @@ class RealtimeMessagingService {
 
   // AI Status Update functionality
   onAIStatusUpdate(callback: (data: any) => void) {
+    console.log('🔧 Setting up AI status update listener');
     this.listeners.set('ai_status_update', callback);
     
-    if (this.socket) {
-      this.socket.on('ai_status_update', callback);
+    if (this.socket && this.isConnected) {
+      console.log('✅ Socket connected, adding ai_status_update listener');
+      // Remove any existing listener first to avoid duplicates
+      this.socket.off('ai_status_update');
+      this.socket.on('ai_status_update', (data) => {
+        console.log('🎯 WebSocket received ai_status_update event:', data);
+        callback(data);
+      });
+    } else {
+      console.log('⚠️ Socket not connected, listener will be added when connected');
     }
   }
 
   offAIStatusUpdate() {
+    console.log('🔧 Removing AI status update listener');
     this.listeners.delete('ai_status_update');
     
     if (this.socket) {

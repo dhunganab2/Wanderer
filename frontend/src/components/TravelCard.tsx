@@ -67,6 +67,57 @@ export const TravelCard: React.FC<TravelCardProps> = ({
           </div>
         )}
 
+        {/* Enhanced Action Buttons - Stack Variant */}
+        {variant === 'stack' && showActions && (onLike || onPass) && (
+          <div className="absolute bottom-6 right-6 flex gap-4">
+            {onPass && (
+              <button
+                onClick={() => handleSwipe('left')}
+                className="w-16 h-16 rounded-full glass-card-elevated backdrop-blur-xl border border-red-500/30 flex items-center justify-center text-red-500 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-300 hover:scale-110 button-bounce group/btn"
+              >
+                <X className="w-7 h-7 group-hover/btn:rotate-90 transition-transform duration-300" />
+              </button>
+            )}
+            {onLike && (
+              <button
+                onClick={() => handleSwipe('right')}
+                className="w-16 h-16 rounded-full bg-gradient-sunrise border border-white/30 flex items-center justify-center text-white hover:shadow-glow transition-all duration-300 hover:scale-110 button-bounce group/btn"
+              >
+                <Heart className="w-7 h-7 group-hover/btn:scale-110 transition-transform duration-300" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Enhanced Action Buttons - Grid Variant */}
+        {variant === 'grid' && showActions && (onLike || onPass) && (
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-3 opacity-80 group-hover:opacity-100 transition-all duration-300 z-10">
+            {onPass && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwipe('left');
+                }}
+                className="w-12 h-12 rounded-full glass-card-elevated backdrop-blur-xl border border-red-500/30 flex items-center justify-center text-red-500 hover:bg-red-500/20 hover:border-red-500/50 transition-all duration-300 hover:scale-110 shadow-lg group/btn"
+                title="Pass"
+              >
+                <X className="w-5 h-5 group-hover/btn:rotate-90 transition-transform duration-300" />
+              </button>
+            )}
+            {onLike && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwipe('right');
+                }}
+                className="w-12 h-12 rounded-full bg-gradient-sunrise border border-white/30 flex items-center justify-center text-white hover:shadow-glow transition-all duration-300 hover:scale-110 shadow-lg group/btn"
+                title="Like"
+              >
+                <Heart className="w-5 h-5 group-hover/btn:scale-110 transition-transform duration-300" fill="currentColor" />
+              </button>
+            )}
+          </div>
+        )}
         
         {/* Enhanced Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />

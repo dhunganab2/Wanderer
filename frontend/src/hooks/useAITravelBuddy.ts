@@ -5,6 +5,7 @@ import type {
   AIUserContext
 } from '../types/aiChat';
 import aiTravelService from '../services/aiTravelService';
+import { messagingService } from '../services/realtimeMessaging';
 
 export const useAITravelBuddy = (userContext?: AIUserContext) => {
   const [state, setState] = useState<AIChatState>({
@@ -43,7 +44,6 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     }
   }, [state.messages]);
 
-
   const addMessage = useCallback((message: Omit<AIChatMessage, 'id'>) => {
     const newMessage: AIChatMessage = {
       ...message,
@@ -57,6 +57,138 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
 
     return newMessage.id;
   }, []);
+
+  // WebSocket listener for AI status updates and final trip plans
+  useEffect(() => {
+    // Only set up listener if we have a valid user ID (not anonymous)
+    if (!userContext?.userId || userContext.userId === 'anonymous_user') {
+      console.log('⏳ Waiting for user authentication before setting up AI listener');
+      return;
+    }
+
+    console.log('🔌 Setting up AI status update listener for user:', userContext.userId);
+
+    const handleAIStatusUpdate = (data: any) => {
+      console.log('📡 Received AI status update:', data);
+      console.log('🔍 Frontend WebSocket Event Data:', JSON.stringify(data, null, 2));
+
+      // Handle different types of updates
+      if (data.stage === 'completed' && data.message) {
+        console.log('🎉 Received final trip plan via WebSocket!');
+        console.log('🔍 Raw data structure:', JSON.stringify(data, null, 2));
+        console.log('🔍 Metadata structure:', JSON.stringify(data.metadata, null, 2));
+        console.log('🔍 Raw data in metadata:', JSON.stringify(data.metadata?.rawData, null, 2));
+
+        // Check if we already have a completed trip plan message to prevent duplicates
+        setState(prev => {
+          // Only check for duplicates if the message has the same content and timestamp
+          const hasCompletedPlan = prev.messages.some(msg =>
+            msg.type === 'trip_plan_with_feedback' &&
+            msg.role === 'assistant' &&
+            !msg.isTyping &&
+            msg.content === data.message && // Check if content is identical
+            Math.abs(new Date(msg.timestamp).getTime() - new Date(data.timestamp || Date.now()).getTime()) < 5000 // Within 5 seconds
+          );
+
+          if (hasCompletedPlan) {
+            console.log('🚫 Duplicate trip plan detected (same content and timestamp), ignoring...');
+            return {
+              ...prev,
+              messages: prev.messages.filter(msg => !msg.isTyping),
+              isLoading: false
+            };
+          }
+
+          // Remove typing indicators and status updates
+          const cleanedMessages = prev.messages.filter(msg =>
+            !msg.isTyping && msg.type !== 'status_update'
+          );
+
+          // Add the comprehensive trip plan as a message with proper metadata
+          const tripPlanMessage: AIChatMessage = {
+            id: generateMessageId(),
+            content: data.message,
+            role: 'assistant',
+            timestamp: data.timestamp || new Date().toISOString(),
+            type: 'trip_plan_with_feedback',
+            metadata: {
+              destination: data.metadata?.destination,
+              duration: data.metadata?.duration,
+              travelers: data.metadata?.travelers,
+              trip_type: data.metadata?.trip_type,
+              rawData: data.metadata?.rawData || data.rawData,
+              allowsFeedback: data.metadata?.allowsFeedback !== false,
+              userProfile: userContext?.userProfile || data.metadata?.userProfile
+            }
+          };
+
+          console.log('✅ Adding trip plan with metadata:', JSON.stringify(tripPlanMessage.metadata, null, 2));
+          console.log('✅ Trip plan message content length:', tripPlanMessage.content.length);
+          console.log('✅ Total messages after adding trip plan:', cleanedMessages.length + 1);
+
+          return {
+            ...prev,
+            messages: [...cleanedMessages, tripPlanMessage],
+            isLoading: false
+          };
+        });
+      } else if (data.stage === 'planning_in_progress' || data.stage === 'thinking') {
+        // Show status updates as temporary messages or update loading state
+        console.log('⚡ AI planning update:', data.progress + '%', data.message);
+
+        // Update loading state with progress info
+        setState(prev => ({
+          ...prev,
+          isLoading: true,
+          error: null
+        }));
+
+        // Optionally show progress as a message (you can customize this)
+        if (data.showToUser && data.message) {
+          // Find and update existing status message or create new one
+          setState(prev => {
+            const existingStatusIndex = prev.messages.findIndex(msg =>
+              msg.type === 'status_update' && msg.role === 'assistant'
+            );
+
+            if (existingStatusIndex >= 0) {
+              // Update existing status message
+              const updatedMessages = [...prev.messages];
+              updatedMessages[existingStatusIndex] = {
+                ...updatedMessages[existingStatusIndex],
+                content: `${data.message} (${data.progress}%)`,
+                timestamp: data.timestamp || new Date().toISOString(),
+              };
+              return { ...prev, messages: updatedMessages };
+            } else {
+              // Add new status message
+              const statusMessage: AIChatMessage = {
+                id: generateMessageId(),
+                content: `${data.message} (${data.progress}%)`,
+                role: 'assistant',
+                timestamp: data.timestamp || new Date().toISOString(),
+                type: 'status_update',
+                isTyping: data.stage === 'thinking'
+              };
+              return {
+                ...prev,
+                messages: [...prev.messages.filter(msg => !msg.isTyping), statusMessage]
+              };
+            }
+          });
+        }
+      }
+    };
+
+    // Subscribe to AI status updates
+    messagingService.onAIStatusUpdate(handleAIStatusUpdate);
+
+    // Cleanup on unmount
+    return () => {
+      console.log('🔌 Cleaning up AI status update listener');
+      messagingService.offAIStatusUpdate();
+    };
+  }, [userContext?.userId, addMessage]);
 
   const updateMessage = useCallback((id: string, updates: Partial<AIChatMessage>) => {
     setState(prev => ({
@@ -80,7 +212,7 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     // Add user message
-    const userMessageId = addMessage({
+    addMessage({
       content: content.trim(),
       role: 'user',
       timestamp: new Date().toISOString(),
@@ -102,12 +234,15 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
         currentUser: userContext?.userId || 'anonymous_user'
       };
       
+      console.log('🤖 Sending message with context:', enhancedUserContext);
       const response = await aiTravelService.sendMessage(content.trim(), enhancedUserContext);
+      console.log('🤖 Received response:', response);
 
       // Remove typing indicator
       removeMessage(typingMessageId);
 
       if (response.success && response.data) {
+        console.log('✅ Adding AI response to chat');
         // Add AI response
         addMessage({
           content: response.data.message,
@@ -117,6 +252,7 @@ export const useAITravelBuddy = (userContext?: AIUserContext) => {
           metadata: response.data.metadata,
         });
       } else {
+        console.error('❌ Response was not successful:', response);
         // Add error message
         addMessage({
           content: response.error || 'Sorry, I encountered an error. Please try again.',

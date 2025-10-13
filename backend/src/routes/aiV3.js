@@ -297,6 +297,48 @@ router.delete('/debug/clear-state/:userId', async (req, res) => {
   }
 });
 
+// Test WebSocket connection
+router.post('/test-websocket/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const socketService = req.app.locals.socketService;
+    
+    if (!socketService) {
+      return res.status(500).json({
+        success: false,
+        error: 'Socket service not available'
+      });
+    }
+
+    // Send a test message
+    const testData = {
+      stage: 'test',
+      message: 'This is a test WebSocket message',
+      timestamp: new Date().toISOString(),
+      progress: 100
+    };
+
+    const success = socketService.sendToUser(userId, 'ai_status_update', testData);
+    
+    res.json({
+      success: true,
+      data: {
+        message: `Test WebSocket message sent to user ${userId}`,
+        delivered: success,
+        connectedUsers: Array.from(socketService.connectedUsers.keys()),
+        userSocketId: socketService.connectedUsers.get(userId)
+      }
+    });
+
+  } catch (error) {
+    console.error('Test WebSocket Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to test WebSocket connection'
+    });
+  }
+});
+
 // Test endpoint
 router.get('/test', async (req, res) => {
   try {

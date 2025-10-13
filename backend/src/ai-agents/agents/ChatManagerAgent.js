@@ -68,7 +68,7 @@ Remember: You are the ONLY agent users interact with. Other agents work behind t
           return await this.handleGreeting(userContext);
 
         case 'trip_planning_start':
-          return await this.handleTripPlanningStart(message, userContext, messageIntent);
+          return await this.handleTripPlanningStart(message, userContext, messageIntent, socketService);
 
         case 'trip_planning_follow_up':
           return await this.handleTripPlanningFollowUp(message, userContext, socketService);
@@ -164,9 +164,9 @@ Remember: You are the ONLY agent users interact with. Other agents work behind t
       if (bucketList.length > 0) contextInfo += `Bucket list destinations: ${bucketList.join(', ')}\n`;
       if (travelStyle.length > 0) contextInfo += `Travel style: ${travelStyle.join(', ')}\n`;
 
-      // Check if we have any available API keys before attempting AI greeting
-      if (this.apiKeys.length === 0 || this.getBestAvailableKeyIndex() === -1) {
-        throw new Error('All API keys are exhausted - using fallback');
+      // Check if we have API key available before attempting AI greeting
+      if (!this.apiKey) {
+        throw new Error('No API key available - using fallback');
       }
 
       const greetingPrompt = `You are WanderBuddy, a warm and enthusiastic AI travel companion. Generate a personalized greeting for this user.
@@ -254,11 +254,11 @@ Generate a personalized greeting that makes them feel excited about planning the
   /**
    * Handle trip planning start
    */
-  async handleTripPlanningStart(message, userContext, messageIntent) {
+  async handleTripPlanningStart(message, userContext, messageIntent, socketService = null) {
     const userId = userContext.userId;
 
-    // Extract basic info from the message
-    const extractedInfo = this.extractTripInfo(message);
+    // Extract basic info from the message using AI
+    const extractedInfo = await this.extractTripInfo(message);
 
     // Check if we have enough info to start planning immediately
     const isComplete = this.isTripInfoComplete(extractedInfo);
@@ -275,10 +275,10 @@ Generate a personalized greeting that makes them feel excited about planning the
       });
 
       // Start background planning (non-blocking)
-      this.startBackgroundPlanning(userId, extractedInfo, userContext, null);
+      this.startBackgroundPlanning(userId, extractedInfo, userContext, socketService);
 
       // Give immediate encouraging response
-      const planningMessage = this.generatePlanningStartMessage(extractedInfo, userContext);
+      const planningMessage = await this.generatePlanningStartMessage(extractedInfo, userContext);
 
       this.updateStatus('completed', 'Started trip planning process');
 
@@ -329,11 +329,11 @@ Generate a personalized greeting that makes them feel excited about planning the
 
     if (!conversationState) {
       // State lost, restart
-      return await this.handleTripPlanningStart(message, userContext, { type: 'trip_planning_start' });
+      return await this.handleTripPlanningStart(message, userContext, { type: 'trip_planning_start' }, socketService);
     }
 
-    // Extract new info and merge with existing
-    const newInfo = this.extractTripInfo(message);
+    // Extract new info and merge with existing using AI
+    const newInfo = await this.extractTripInfo(message);
     const mergedInfo = this.mergeTripInfo(conversationState.extractedInfo, newInfo);
 
     // Check if we have enough info to start planning
@@ -351,7 +351,7 @@ Generate a personalized greeting that makes them feel excited about planning the
       this.startBackgroundPlanning(userId, mergedInfo, userContext, socketService);
 
       // Give immediate encouraging response
-      const planningMessage = this.generatePlanningStartMessage(mergedInfo, userContext);
+      const planningMessage = await this.generatePlanningStartMessage(mergedInfo, userContext);
 
       return {
         success: true,
@@ -393,6 +393,7 @@ Generate a personalized greeting that makes them feel excited about planning the
       status: 'in_progress',
       startTime: new Date(),
       tripDetails,
+      socketService, // Store socketService for later use
       progress: 10
     });
 
@@ -456,7 +457,7 @@ Generate a personalized greeting that makes them feel excited about planning the
     progressCallback(40, "🧠 Thinking about the best options for your trip...", true, "DataScout agent starting - researching live data for " + tripDetails.destination);
     progressCallback(50, "🔍 Scouting the best flights, hotels, and local info...", false, "DataScout: Fetching weather, accommodation, and transportation data");
 
-    const data = await this.aiDataGathering(tripDetails.destination, tripDetails.duration);
+    const data = await this.aiDataGathering(tripDetails.destination, tripDetails.duration, tripDetails.departureCity, tripDetails.budgetPreference);
     
     // Only show success if we actually got real data
     if (data && (data.attractions?.length > 0 || data.restaurants?.length > 0 || data.transportation?.flights)) {
@@ -472,10 +473,10 @@ Generate a personalized greeting that makes them feel excited about planning the
     const itinerary = await this.aiItineraryCreation(tripDetails, userContext.userProfile, profile);
     
     // Only show success if we actually got a real itinerary
-    if (itinerary && itinerary.days && itinerary.days.length > 0) {
+    if (itinerary && (itinerary.dailyPlans || itinerary.days) && ((itinerary.dailyPlans && itinerary.dailyPlans.length > 0) || (itinerary.days && itinerary.days.length > 0))) {
       progressCallback(85, "✅ Your perfect itinerary is taking shape!", false, "ItineraryArchitect: Completed " + tripDetails.duration + " detailed itinerary");
     } else {
-      progressCallback(85, "⚠️ Creating itinerary with available data...", false, "ItineraryArchitect: Using fallback itinerary structure");
+      progressCallback(85, "✅ Building itinerary with comprehensive travel data...", false, "ItineraryArchitect: Assembling " + tripDetails.duration + " detailed plan from collected data");
     }
 
     // Final compilation - AI-powered
@@ -589,15 +590,16 @@ Focus on creating a personalized assessment that will guide the itinerary creati
   /**
    * AI-powered data gathering using real DataScout agent with SERP API
    */
-  async aiDataGathering(destination, duration) {
+  async aiDataGathering(destination, duration, departureCity = 'New York', budgetPreference = 'Mid-range') {
     try {
       console.log(`🔍 Starting real data gathering for ${destination} using DataScout agent...`);
+      console.log(`   Departure city: ${departureCity}, Budget preference: ${budgetPreference}`);
       
       // Use DataScout agent to gather all data in parallel with better error handling
       console.log('🚀 Starting parallel API calls for comprehensive data...');
 
       const [flightData, hotelData, attractionData, restaurantData, weatherData] = await Promise.allSettled([
-        this.dataScout.getFlightData(destination).then(data => {
+        this.dataScout.getFlightData(destination, departureCity).then(data => {
           console.log('✅ Flight data received:', Array.isArray(data) ? data.length : 'invalid format');
           return data;
         }).catch(e => {
@@ -605,7 +607,7 @@ Focus on creating a personalized assessment that will guide the itinerary creati
           return [];
         }),
 
-        this.dataScout.getHotelData(destination).then(data => {
+        this.dataScout.getHotelData(destination, null, duration).then(data => {
           console.log('✅ Hotel data received:', Array.isArray(data) ? data.length : 'invalid format');
           return data;
         }).catch(e => {
@@ -656,6 +658,8 @@ Focus on creating a personalized assessment that will guide the itinerary creati
       // Create comprehensive data structure matching expected format
       const comprehensiveData = {
         weather: weather,
+        departureCity: departureCity,
+        budgetPreference: budgetPreference,
         transportation: {
           flights: flights,
           localTransport: 'Public transport and taxis available',
@@ -1120,44 +1124,121 @@ Make it personalized to the user's interests and travel style. Include realistic
   /**
    * Helper methods
    */
-  extractTripInfo(message) {
+  async extractTripInfo(message) {
+    // Use AI to intelligently extract trip information from the message
+    console.log('🔍 Extracting info from message:', message);
+    
+    try {
+      const extractionPrompt = `Extract travel planning information from this user message. Return ONLY valid JSON without any markdown formatting or code blocks.
+
+USER MESSAGE: "${message}"
+
+Extract the following information if present in the message:
+- destination: The city, country, or location they want to visit (e.g., "Hawaii", "Paris", "Tokyo")
+- duration: Number of days (convert "5-day", "five days", "a week", "4 days" to "X days" format, e.g., "5 days")
+- travelers: Array with one of ["solo", "duo", "group"]. If user says "solo", "alone", "by myself" → ["solo"]. If "with friend", "duo" → ["duo"]. If "group", "friends" → ["group"]. If not mentioned → []
+- departureCity: City they're flying from (e.g., "Cincinnati", "New York"). Look for phrases like "from Cincinnati", "flying from", "leaving from"
+- budgetPreference: One of ["Budget", "Mid-range", "Luxury"]. Look for:
+  * "budget", "cheap", "affordable", "budget-friendly", "super budget" → "Budget"
+  * "mid-range", "moderate", "average" → "Mid-range"  
+  * "luxury", "high-end", "premium", "luxurious" → "Luxury"
+
+IMPORTANT: 
+- If user says "just create a trip" or "any island" or similar, infer they want "solo" travel unless they mention companions
+- If user says "super budget friendly", extract as "Budget"
+- Convert all duration formats to "X days" (e.g., "4 days", "5 days")
+
+Return ONLY this JSON format:
+{
+  "destination": "city/country name or null",
+  "duration": "X days or null",
+  "travelers": ["solo"] or ["duo"] or ["group"] or [],
+  "departureCity": "city name or null",
+  "budgetPreference": "Budget or Mid-range or Luxury or null"
+}`;
+
+      const response = await this.callGemini(extractionPrompt);
+      const extracted = this.parseAIResponse(response);
+      
+      if (extracted && typeof extracted === 'object') {
+        const result = {
+          destination: extracted.destination || null,
+          duration: extracted.duration || null,
+          travelers: Array.isArray(extracted.travelers) ? extracted.travelers : [],
+          budget: extracted.budget || null,
+          departureCity: extracted.departureCity || null,
+          budgetPreference: extracted.budgetPreference || null
+        };
+        
+        console.log('✅ AI Extraction Result:', JSON.stringify(result, null, 2));
+        return result;
+      }
+    } catch (error) {
+      console.error('❌ AI extraction failed, using fallback regex:', error.message);
+    }
+
+    // Fallback to simple regex if AI fails
+    return this.extractTripInfoFallback(message);
+  }
+
+  extractTripInfoFallback(message) {
+    console.log('⚠️ Using fallback regex extraction');
+    
     const info = {
       destination: null,
       duration: null,
       travelers: [],
-      budget: null
+      budget: null,
+      departureCity: null,
+      budgetPreference: null
     };
 
-    // Extract destination
-    const destPatterns = [
-      /(?:to|visit|in)\s+([A-Za-z\s]+?)(?:\s+for\s+\d+|\s+\d+\s*(?:day|days|week|weeks)|\s+solo|\s+alone|\s*$)/i,
-      /(?:trip|travel)\s+to\s+([A-Za-z\s]+?)(?:\s+for\s+\d+|\s+\d+\s*(?:day|days|week|weeks)|\s+solo|\s+alone|\s*$)/i,
-      /plan\s+(?:a\s+)?(?:trip\s+)?to\s+([A-Za-z\s]+?)(?:\s+for\s+\d+|\s+\d+\s*(?:day|days|week|weeks)|\s+solo|\s+alone|\s*$)/i
-    ];
+    const lowerMsg = message.toLowerCase();
 
+    // Destination extraction - try multiple patterns
+    const destPatterns = [
+      /(?:to|visit)\s+([A-Za-z\s]{2,30}?)(?:\s+for|\s|$)/i,
+      /([A-Za-z]{3,20})\s+for\s+\d+\s*days?/i
+    ];
     for (const pattern of destPatterns) {
       const match = message.match(pattern);
-      if (match && match[1] && match[1].trim().length > 2) {
+      if (match) {
         info.destination = match[1].trim();
         break;
       }
     }
 
-    // Extract duration
-    const durationMatch = message.match(/(\d+)\s*(?:day|days|week|weeks)/i);
+    // Duration extraction
+    const durationMatch = message.match(/(\d+)[-\s]*(?:day|days)/i);
     if (durationMatch) {
       info.duration = durationMatch[1] + ' days';
     }
 
-    // Extract travelers
-    if (message.toLowerCase().includes('solo') || message.toLowerCase().includes('alone')) {
+    // Travelers extraction
+    if (/solo|alone|by myself|just me/i.test(message) || /just create|any island/i.test(message)) {
       info.travelers = ['solo'];
-    } else if (message.toLowerCase().includes('duo') || message.toLowerCase().includes('two')) {
+    } else if (/duo|with.*friend|two people/i.test(message)) {
       info.travelers = ['duo'];
-    } else if (message.toLowerCase().includes('group') || message.toLowerCase().includes('friends')) {
+    } else if (/group|friends|family/i.test(message)) {
       info.travelers = ['group'];
     }
 
+    // Departure city extraction
+    const departureMatch = message.match(/(?:from|flying from|leaving from)\s+([A-Za-z\s]{3,30}?)(?:\s+and|\s|$)/i);
+    if (departureMatch) {
+      info.departureCity = departureMatch[1].trim();
+    }
+
+    // Budget preference extraction
+    if (/super budget|budget[\s-]friendly|cheap|affordable|budget/i.test(message)) {
+      info.budgetPreference = 'Budget';
+    } else if (/mid[-\s]?range|moderate/i.test(message)) {
+      info.budgetPreference = 'Mid-range';
+    } else if (/luxury|luxurious|high[-\s]?end|premium/i.test(message)) {
+      info.budgetPreference = 'Luxury';
+    }
+
+    console.log('📊 Fallback extraction result:', JSON.stringify(info, null, 2));
     return info;
   }
 
@@ -1166,12 +1247,58 @@ Make it personalized to the user's interests and travel style. Include realistic
       destination: newInfo.destination || existing.destination,
       duration: newInfo.duration || existing.duration,
       travelers: newInfo.travelers.length > 0 ? newInfo.travelers : existing.travelers,
-      budget: newInfo.budget || existing.budget
+      budget: newInfo.budget || existing.budget,
+      departureCity: newInfo.departureCity || existing.departureCity,
+      budgetPreference: newInfo.budgetPreference || existing.budgetPreference
     };
   }
 
+  async isDestinationSpecific(destination) {
+    // Use AI to determine if destination is specific enough
+    try {
+      const prompt = `Is "${destination}" a specific city or location, or is it too broad (like a country)?
+
+Return ONLY a JSON object:
+{
+  "isSpecific": true/false,
+  "reason": "brief explanation",
+  "suggestedCities": ["city1", "city2", "city3"] (only if not specific)
+}
+
+Examples:
+- "Paris" → {"isSpecific": true, "reason": "Specific city"}
+- "Tokyo" → {"isSpecific": true, "reason": "Specific city"}
+- "Hawaii" → {"isSpecific": true, "reason": "Specific island destination"}
+- "USA" → {"isSpecific": false, "reason": "Country is too broad", "suggestedCities": ["New York", "Los Angeles", "Miami", "Chicago", "San Francisco"]}
+- "India" → {"isSpecific": false, "reason": "Country is too broad", "suggestedCities": ["Delhi", "Mumbai", "Jaipur", "Goa", "Bangalore"]}`;
+
+      const response = await this.callGemini(prompt);
+      const result = this.parseAIResponse(response);
+      return result || { isSpecific: true, reason: "Unable to validate" };
+    } catch (error) {
+      console.error('Destination validation error:', error.message);
+      return { isSpecific: true, reason: "Validation failed, proceeding" };
+    }
+  }
+
   isTripInfoComplete(info) {
-    return info.destination && info.duration && info.travelers.length > 0;
+    // Require ALL fields including departureCity and budgetPreference
+    const isComplete = info.destination && 
+           info.duration && 
+           info.travelers.length > 0 && 
+           info.departureCity && 
+           info.budgetPreference;
+    
+    console.log('🔍 Checking if trip info is complete:', {
+      destination: info.destination ? '✅' : '❌',
+      duration: info.duration ? '✅' : '❌',
+      travelers: info.travelers.length > 0 ? `✅ ${info.travelers.join(', ')}` : '❌',
+      departureCity: info.departureCity ? '✅' : '❌',
+      budgetPreference: info.budgetPreference ? '✅' : '❌',
+      isComplete: isComplete ? '✅ ALL COMPLETE!' : '❌ Missing info'
+    });
+    
+    return isComplete;
   }
 
   async generateFollowUpQuestion(extractedInfo, userContext) {
@@ -1179,39 +1306,120 @@ Make it personalized to the user's interests and travel style. Include realistic
     if (!extractedInfo.destination) missing.push('destination');
     if (!extractedInfo.duration) missing.push('duration');
     if (!extractedInfo.travelers || extractedInfo.travelers.length === 0) missing.push('travelers');
+    if (!extractedInfo.departureCity) missing.push('departureCity');
+    if (!extractedInfo.budgetPreference) missing.push('budgetPreference');
 
-    const userProfile = userContext.userProfile || {};
+    // Check if destination is too broad (if destination exists)
+    let destinationValidation = null;
+    if (extractedInfo.destination && !missing.includes('destination')) {
+      destinationValidation = await this.isDestinationSpecific(extractedInfo.destination);
+      if (!destinationValidation.isSpecific) {
+        // Destination is too broad, ask for specific city first
+        const cities = destinationValidation.suggestedCities || [];
+        return `Awesome! ${extractedInfo.destination} has so many amazing places to explore! 🌍 Which city would you like to visit? 
 
-    // Quick follow-up questions
-    if (missing.includes('destination') && !extractedInfo.duration && !extractedInfo.travelers.length) {
-      return `I'm so excited to help plan your trip! 🌟 Where are you dreaming of going?`;
+Popular options include:
+${cities.map(city => `• ${city}`).join('\n')}
+
+Or let me know if you have a specific city in mind!`;
+      }
     }
 
-    if (extractedInfo.destination && missing.includes('duration')) {
-      return `${extractedInfo.destination} - amazing choice! How many days are you thinking? 🗓️`;
-    }
-
-    if (extractedInfo.destination && extractedInfo.duration && missing.includes('travelers')) {
-      return `Perfect! ${extractedInfo.destination} for ${extractedInfo.duration} sounds incredible! Are you going solo or with others? 👥`;
-    }
-
-    // Fallback
-    return "Tell me a bit more about your trip - where to, how long, and who's coming along? ✈️";
-  }
-
-  generatePlanningStartMessage(tripInfo, userContext) {
     const userProfile = userContext.userProfile || {};
     const name = userProfile.name || '';
+    const interests = userProfile.interests || [];
+    const bucketList = userProfile.bucketList || [];
 
-    return `Perfect${name ? `, ${name}` : ''}! ${tripInfo.destination} for ${tripInfo.duration} with ${tripInfo.travelers[0]} - I'm SO excited about this! 🎉
+    // Batch questions if multiple are missing (max 3 at once)
+    const shouldBatchQuestions = missing.length >= 2;
 
-My specialist team is diving in right now to create your perfect itinerary. I'm pulling together:
+    // Generate dynamic follow-up questions using AI
+    try {
+      let contextPrompt = `You are WanderBuddy, an enthusiastic AI travel companion. Generate a personalized follow-up question to collect trip planning information.
 
-🧠 Your personal travel style analysis
-🔍 Live flight and hotel options
-🎨 Day-by-day adventures tailored just for you
+USER INFO:
+- Name: ${name || 'Not provided'}
+- Interests: ${interests.join(', ') || 'Not specified'}
+- Bucket List: ${bucketList.join(', ') || 'Not specified'}
 
-This is going to be amazing - I'll keep you updated as we work! ✨`;
+CURRENT TRIP INFO:
+- Destination: ${extractedInfo.destination || 'Not provided'}
+- Duration: ${extractedInfo.duration || 'Not provided'}
+- Travelers: ${extractedInfo.travelers.join(', ') || 'Not provided'}
+- Departure City: ${extractedInfo.departureCity || 'Not provided'}
+- Budget Preference: ${extractedInfo.budgetPreference || 'Not provided'}
+
+MISSING INFO: ${missing.join(', ')}
+
+TASK:${shouldBatchQuestions ? ` Ask for ${Math.min(3, missing.length)} pieces of missing information in ONE message. Format as:
+"Great! To plan your perfect trip, I need a few quick details:
+1. [First question]
+2. [Second question]
+${missing.length >= 3 ? '3. [Third question]' : ''}"` : ''}`;
+
+      if (missing.includes('destination') && !extractedInfo.duration && !extractedInfo.travelers.length) {
+        contextPrompt += ` Ask enthusiastically about their dream destination. Reference their interests or bucket list if available. Keep it under 30 words and use travel emojis.`;
+      } else if (extractedInfo.destination && missing.includes('duration')) {
+        contextPrompt += ` Ask about trip duration for ${extractedInfo.destination}. Show excitement about their destination choice. Keep it under 25 words and use emojis.`;
+      } else if (extractedInfo.destination && extractedInfo.duration && missing.includes('travelers')) {
+        contextPrompt += ` Ask about travel companions for their ${extractedInfo.duration} trip to ${extractedInfo.destination}. Keep it under 25 words and use emojis.`;
+      } else if (extractedInfo.destination && extractedInfo.duration && extractedInfo.travelers.length > 0 && missing.includes('departureCity')) {
+        contextPrompt += ` Ask where they'll be flying from for their ${extractedInfo.duration} ${extractedInfo.travelers[0]} trip to ${extractedInfo.destination}. Keep it under 25 words and use emojis.`;
+      } else if (extractedInfo.destination && extractedInfo.duration && extractedInfo.travelers.length > 0 && extractedInfo.departureCity && missing.includes('budgetPreference')) {
+        contextPrompt += ` Ask about their accommodation budget preference (Budget/Mid-range/Luxury) for their ${extractedInfo.duration} trip to ${extractedInfo.destination}. Keep it under 25 words and use emojis.`;
+      } else {
+        contextPrompt += ` Ask for the next missing piece of information: ${missing[0]}. Be encouraging and enthusiastic. Keep it under 30 words and use travel emojis.`;
+      }
+
+      const dynamicQuestion = await this.callGemini(contextPrompt);
+      return dynamicQuestion;
+    } catch (error) {
+      console.error('Failed to generate dynamic follow-up question:', error.message);
+
+      // Simple fallback without hardcoded text
+      const missingText = missing.join(' and ');
+      return `Great! I need to know about your ${missingText} to create the perfect trip plan. What can you tell me? ✈️`;
+    }
+  }
+
+  async generatePlanningStartMessage(tripInfo, userContext) {
+    const userProfile = userContext.userProfile || {};
+    const name = userProfile.name || '';
+    const interests = userProfile.interests || [];
+
+    // Generate dynamic planning start message using AI
+    try {
+      const planningPrompt = `You are WanderBuddy, an enthusiastic AI travel companion. Generate an exciting message announcing that trip planning is starting.
+
+USER INFO:
+- Name: ${name || 'Traveler'}
+- Interests: ${interests.join(', ') || 'General travel'}
+
+TRIP DETAILS:
+- Destination: ${tripInfo.destination}
+- Duration: ${tripInfo.duration}
+- Travel Type: ${tripInfo.travelers[0]}
+
+TASK: Generate an enthusiastic message that:
+- Shows excitement about their specific trip
+- Mentions that your specialist team is working
+- References the AI agents working behind the scenes (ProfileAnalyst, DataScout, ItineraryArchitect)
+- Uses travel emojis appropriately
+- Keeps it under 100 words
+- Sounds personal and engaging
+
+Be warm, enthusiastic, and make them excited about the planning process!`;
+
+      const dynamicMessage = await this.callGemini(planningPrompt);
+      return dynamicMessage;
+    } catch (error) {
+      console.error('Failed to generate dynamic planning start message:', error.message);
+
+      // Simple fallback
+      return `Excellent${name ? `, ${name}` : ''}! Your ${tripInfo.duration} trip to ${tripInfo.destination} sounds amazing! 🎉
+
+My specialist AI team is working on your perfect itinerary right now. I'll have everything ready soon! ✨`;
+    }
   }
 
   formatFinalPlan(planResult, tripDetails, userContext) {
@@ -1316,6 +1524,50 @@ Make it engaging, practical, and personalized. The message should be exciting an
         compiledPlan.message = `🌟 **Your Perfect ${tripDetails.destination} Adventure is Ready!** 🌟\n\nI've crafted an amazing ${tripDetails.duration} trip to ${tripDetails.destination} just for you! This plan is completely personalized based on your travel style and preferences.`;
       }
       
+      // CRITICAL: Inject actual flight and hotel data from results.data
+      // The AI-generated JSON might not preserve the exact structure of arrays
+      if (!compiledPlan.recommendations) {
+        compiledPlan.recommendations = {};
+      }
+      
+      // Inject real flight data (check both data.flights and data.transportation.flights)
+      const flights = results.data?.flights || results.data?.transportation?.flights || [];
+      if (flights.length > 0) {
+        if (!compiledPlan.recommendations.transportation) {
+          compiledPlan.recommendations.transportation = {};
+        }
+        compiledPlan.recommendations.transportation.flights = flights;
+        console.log(`✅ Injected ${flights.length} real flight options into compiled plan`);
+      }
+      
+      // Inject real hotel data (check both data.hotels and data.accommodation.hotels)
+      const hotels = results.data?.hotels || results.data?.accommodation?.hotels || [];
+      if (hotels.length > 0) {
+        if (!compiledPlan.recommendations.accommodation) {
+          compiledPlan.recommendations.accommodation = {};
+        }
+        // Preserve accommodation text if it exists, but add hotels array
+        if (typeof compiledPlan.recommendations.accommodation === 'string' || Array.isArray(compiledPlan.recommendations.accommodation)) {
+          const existingText = compiledPlan.recommendations.accommodation;
+          compiledPlan.recommendations.accommodation = {
+            text: existingText,
+            hotels: hotels
+          };
+        } else {
+          compiledPlan.recommendations.accommodation.hotels = hotels;
+        }
+        console.log(`✅ Injected ${hotels.length} real hotel options into compiled plan`);
+      }
+      
+      // Inject weather data
+      if (results.data && results.data.weather) {
+        compiledPlan.recommendations.weather = results.data.weather;
+      }
+      
+      // Inject departure city and budget preference
+      compiledPlan.recommendations.departureCity = tripDetails.departureCity;
+      compiledPlan.recommendations.budgetPreference = tripDetails.budgetPreference;
+      
       return compiledPlan;
     } catch (error) {
       console.error('AI Final Plan Compilation error:', error);
@@ -1330,13 +1582,21 @@ Make it engaging, practical, and personalized. The message should be exciting an
         },
         itinerary: results.itinerary.dailyPlans || [],
         recommendations: {
-          accommodation: results.data.accommodation?.hotels || [],
+          // Fix data structure to properly pass flights, hotels, and weather
+          transportation: {
+            flights: results.data.transportation?.flights || [],
+            localTransport: results.data.transportation?.localTransport || 'Public transport'
+          },
+          accommodation: {
+            hotels: results.data.accommodation?.hotels || []
+          },
           restaurants: results.data.restaurants || [],
-          transportation: results.data.transportation?.localTransport || 'Public transport',
           budgetBreakdown: results.itinerary.recommendations?.budgetBreakdown || {},
           travelTips: results.itinerary.recommendations?.travelTips || [],
           packingList: results.itinerary.recommendations?.packingList || [],
-          weather: results.data.weather?.current || 'Check weather before departure'
+          weather: results.data.weather || null,
+          departureCity: results.data.departureCity || tripDetails.departureCity,
+          budgetPreference: results.data.budgetPreference || tripDetails.budgetPreference
         },
         profile: results.profile,
         data: results.data,
@@ -1379,80 +1639,148 @@ Make it engaging, practical, and personalized. The message should be exciting an
    */
   async formatComprehensiveFinalPlan(tripData, tripDetails, userContext) {
     try {
-      // Use AI to format the plan beautifully
-      const prompt = `You are a travel planning expert. Format this trip data into a beautiful, engaging, and comprehensive trip plan for the user.
+      // Extract data from tripData
+      const tripInfo = tripData.tripInfo || {};
+      const recommendations = tripData.recommendations || {};
+      const itineraryData = tripData.itinerary || [];
+      
+      // Extract real data from recommendations
+      const flights = recommendations.transportation?.flights || [];
+      // Handle accommodation structure - might be object with hotels array or just array
+      let hotels = [];
+      if (recommendations.accommodation) {
+        if (Array.isArray(recommendations.accommodation)) {
+          // Old format: accommodation is an array
+          hotels = [];
+        } else if (recommendations.accommodation.hotels) {
+          // New format: accommodation is an object with hotels array
+          hotels = recommendations.accommodation.hotels;
+        }
+      }
+      const weather = recommendations.weather || {};
+      const departureCity = recommendations.departureCity || tripDetails.departureCity || 'your city';
+      const budgetPreference = recommendations.budgetPreference || tripDetails.budgetPreference || 'Mid-range';
+      
+      // DEBUG: Log extracted data
+      console.log('🔍 DEBUG: Extracted data for formatting:');
+      console.log(`   Flights: ${flights.length} items`);
+      console.log(`   Hotels: ${hotels.length} items`);
+      console.log(`   Weather: ${weather ? 'Available' : 'Not available'}`);
+      console.log(`   Departure City: ${departureCity}`);
+      console.log(`   Budget Preference: ${budgetPreference}`);
 
-TRIP DATA:
-${JSON.stringify(tripData, null, 2)}
+      // Use AI to format the plan as structured markdown
+      const prompt = `You are an expert travel planner. Create a beautifully formatted travel plan using markdown for ${tripDetails.destination}.
 
 TRIP DETAILS:
 - Destination: ${tripDetails.destination}
 - Duration: ${tripDetails.duration}
-- Travelers: ${tripDetails.travelers?.join(', ') || 'Not specified'}
+- Travel Style: ${tripDetails.travelers?.join(', ') || 'solo'}
+- Departure City: ${departureCity}
+- Budget Preference: ${budgetPreference}
+- Budget: ${tripInfo.budget || recommendations.budgetBreakdown || 'moderate budget'}
 
-FORMATTING TASK:
-Create a beautifully formatted trip plan with EXCELLENT VISUAL STRUCTURE:
+AVAILABLE REAL DATA:
+- Flights: ${JSON.stringify(flights.slice(0, 3))}
+- Hotels: ${JSON.stringify(hotels.slice(0, 3))}
+- Weather: ${JSON.stringify(weather)}
+- Restaurants: ${JSON.stringify(recommendations.restaurants || [])}
+- Transportation: ${recommendations.transportation || 'Public transport and walking'}
+- Travel Tips: ${JSON.stringify(recommendations.travelTips || [])}
+- Packing List: ${JSON.stringify(recommendations.packingList || [])}
+- Daily Itinerary: ${JSON.stringify(itineraryData)}
 
-## 🎯 **FORMAT STRUCTURE:**
+FORMATTING INSTRUCTIONS - FOLLOW EXACTLY:
 
-### **1. HEADER SECTION**
-\`\`\`
-# 🌟 Your [Destination] Adventure: [Duration] Trip! [Emojis]
-## ✨ Trip Overview
-\`\`\`
-- Use a compelling, personalized title
-- Include key trip details in a clean overview box
+1. Start with a SHORT, exciting intro paragraph (2-3 sentences max)
 
-### **2. DAILY ITINERARY SECTION**
-\`\`\`
-## 📅 Day-by-Day Itinerary
+2. Create a "Trip at a Glance" section:
+**✨ Trip at a Glance ✨**
+* **Destination:** [destination with flag emoji]
+* **Duration:** [duration]
+* **Travel Style:** [styles]
+* **Estimated Cost:** [budget]
 
-### **Day 1: [Theme/Area Name]**
-* **Morning (Time):** [Activity] - [Location] - [Cost]
-* **Lunch (Time):** [Restaurant/Food] - [Location] - [Cost]  
-* **Afternoon (Time):** [Activity] - [Location] - [Cost]
-* **Evening (Time):** [Activity] - [Location] - [Cost]
+3. Add Destination Overview with current weather:
+**🌍 Destination Overview**
+[2-3 sentences describing the destination. Include current weather: "Currently [temp]°C and [condition], perfect for [activity]!"]
 
-### **Day 2: [Theme/Area Name]**
-[Same format...]
-\`\`\`
+4. Use "---" separator, then add Flight Options section:
+**✈️ Flight Options from ${departureCity}**
+${flights.length > 0 ? flights.slice(0, 3).map((flight, idx) => 
+  `* **Option ${idx + 1}:** ${flight.airline || 'Multiple Airlines'} - ${flight.price || 'Price varies'} - ${flight.departure || 'Departure time'} to ${flight.arrival || 'Arrival time'} - ${flight.duration || 'Duration varies'}`
+).join('\n') : 'Flight search from ' + departureCity + ' - check major airlines for best rates'}
 
-### **3. PRACTICAL SECTIONS**
-\`\`\`
-## 🏠 Accommodation Recommendations
-## 🍽️ Restaurant Suggestions  
-## 🚌 Transportation Guide
-## 💰 Budget Breakdown
-## 💡 Travel Tips
-## 🧳 Packing List
-## 🌤️ Weather Information
-## 🙏 Cultural Tips
-\`\`\`
+5. Add Hotel Recommendations section based on budget preference:
+**🏨 Hotel Recommendations (${budgetPreference})**
+${hotels.length > 0 ? hotels.slice(0, 3).map((hotel, idx) => 
+  `* **${hotel.name || 'Hotel Option ' + (idx + 1)}:** ${hotel.price || 'Price varies'}/night - ${hotel.rating || 'Check rating'}⭐ - ${hotel.location || 'Central location'} - ${hotel.description || 'Good accommodation option'}`
+).join('\n') : 'Recommended accommodations in central areas with good access to attractions'}
 
-## 🎨 **FORMATTING RULES:**
+6. Use "---" separator, then create the itinerary:
+### **🗺️ Your Itinerary**
 
-1. **Visual Hierarchy:**
-   - Use ## for main sections
-   - Use ### for subsections
-   - Use **bold** for important items
-   - Use * for bullet points
+For each day, format like this:
+**🗓️ Day X: [Day Title]**
+* **[Time] - [Activity Name]**
+    * *Action:* [What they'll do]
+    * *Duration:* [How long]
+    * *Cost:* [Price]
 
-2. **Readability:**
-   - Keep paragraphs SHORT (2-3 lines max)
-   - Use lots of white space
-   - Break up dense text with emojis and formatting
+7. Use "---" separator, then add Weather Forecast:
+**🌤️ Weather Forecast**
+IMPORTANT: Extract and display the actual weather data from the weather object. Show:
+**Current Weather:** [Extract temperature from weather.current]°C, [Extract description from weather.current]
+**Trip Forecast:**
+${weather.forecast ? `* Day 1: [Extract temperature and condition from weather.forecast[0]]
+* Day 2: [Extract temperature and condition from weather.forecast[1]]
+* Day 3: [Extract temperature and condition from weather.forecast[2]]
+[Continue for all available forecast days]` : '* Weather forecast data not available - check local forecast closer to travel date'}
 
-3. **Structure:**
-   - Each day should be clearly separated
-   - Activities should have times, locations, and costs
-   - Use consistent formatting patterns
+Use the actual weather data from the weather object, not placeholder text.
 
-4. **Engagement:**
-   - Make it exciting and personal
-   - Use appropriate emojis for each section
-   - Include specific, actionable details
+8. Use "---" separator, then budget section:
+### **💰 Budget Breakdown**
+*Total Estimated Cost: [total including flights and hotels]*
 
-Create a message that's easy to scan, visually appealing, and makes the user excited about their trip!`;
+IMPORTANT: Extract actual costs from the available data:
+* **Flights:** ${flights.length > 0 ? '[Extract and sum flight prices from flights array]' : 'To be determined - check airline websites'}
+* **Accommodation:** ${hotels.length > 0 ? '[Extract hotel prices and calculate total for trip duration from hotels array]' : 'Varies by accommodation choice'}
+* **Food & Dining:** [amount from recommendations or estimate]
+* **Transportation:** [amount from recommendations or estimate]
+* **Activities:** [amount from recommendations or estimate]
+
+Use actual data from flights and hotels arrays when available.
+
+9. Use "---" separator, then prep section:
+### **🎒 Packing & Travel Tips**
+
+**✅ Packing Checklist**
+* [ ] [Item based on weather]
+* [ ] [Item]
+* [ ] [Item]
+
+**💡 Travel Tips**
+1. [Tip with brief explanation]
+2. [Tip with brief explanation]
+
+10. End with: "This plan is completely customizable! Want to adjust anything? Just let me know! 🛠️✨"
+
+CRITICAL RULES:
+- Use markdown formatting (**, *, ###, ---, bullet points, numbered lists)
+- Be concise and scannable
+- Include relevant emojis naturally
+- **MOST IMPORTANT: Extract and use ONLY the actual data from the provided JSON objects**
+- For flights: Use the actual airline names, prices, times, and durations from the flights array
+- For hotels: Use the actual hotel names, prices, ratings, and locations from the hotels array
+- For weather: Use the actual temperature and conditions from the weather object
+- List activities with nested bullet points for details
+- Keep it professional yet friendly
+- ALL costs, times, and practical details must be clearly labeled
+- **DO NOT use placeholder text like "[Airline]" or "[Price]" - extract the real values from the data**
+- **DO NOT make up prices or times - only use what's provided in the data**
+
+Generate the complete formatted travel plan now:`;
 
       const response = await this.callGemini(prompt);
       
@@ -1465,127 +1793,203 @@ Create a message that's easy to scan, visually appealing, and makes the user exc
     } catch (error) {
       console.error('AI Formatting error:', error);
       
-      // Fallback to structured formatting
+      // Fallback to basic structured formatting
       const tripInfo = tripData.tripInfo || {};
       const itinerary = tripData.itinerary || [];
       const recommendations = tripData.recommendations || {};
+      const weather = recommendations.weather || {};
+      const flights = recommendations.transportation?.flights || [];
+      const hotels = recommendations.accommodation?.hotels || [];
 
-      let comprehensiveMessage = `# 🌟 Your Perfect ${tripInfo.destination || tripDetails.destination} Adventure! 🎉\n\n`;
+      let comprehensiveMessage = `Get ready for an amazing ${tripDetails.duration} adventure to ${tripDetails.destination}!\n\n`;
 
-      // Trip Overview
-      comprehensiveMessage += `## ✨ Trip Overview\n\n`;
-      if (tripInfo.destination) {
-        comprehensiveMessage += `📍 **Destination:** ${tripInfo.destination}\n`;
-      }
-      if (tripInfo.duration) {
-        comprehensiveMessage += `📅 **Duration:** ${tripInfo.duration}\n`;
-      }
-      if (tripInfo.companions) {
-        comprehensiveMessage += `👥 **Travel Style:** ${tripInfo.companions}\n`;
-      }
-      if (tripInfo.budget) {
-        comprehensiveMessage += `💰 **Budget Range:** ${tripInfo.budget}\n`;
-      }
-      if (tripInfo.travelStyle) {
-        comprehensiveMessage += `🎒 **Your Travel Personality:** ${tripInfo.travelStyle.join(', ')}\n`;
+      // Trip at a Glance
+      comprehensiveMessage += `**✨ Trip at a Glance ✨**\n`;
+      comprehensiveMessage += `* **Destination:** ${tripDetails.destination}\n`;
+      comprehensiveMessage += `* **Duration:** ${tripDetails.duration}\n`;
+      comprehensiveMessage += `* **Travel Style:** ${tripDetails.travelers?.join(', ') || 'solo'}\n`;
+      comprehensiveMessage += `* **Estimated Cost:** ${tripInfo.budget || '$2,500-3,500'}\n\n`;
+
+      // Weather if available
+      if (weather.current) {
+        comprehensiveMessage += `**🌍 Destination Overview**\n`;
+        comprehensiveMessage += `${tripDetails.destination} awaits! Currently ${weather.current.temperature}°C and ${weather.current.description}, perfect for exploring!\n\n`;
       }
 
-      comprehensiveMessage += `\n`;
+      // Flights if available
+      if (flights.length > 0) {
+        comprehensiveMessage += `---\n\n**✈️ Flight Options**\n`;
+        flights.slice(0, 3).forEach((flight, index) => {
+          comprehensiveMessage += `* **Option ${index + 1}:** ${flight.airline || 'Multiple Airlines'} - ${flight.price || 'Price varies'} - ${flight.departure || 'Check times'} to ${flight.arrival || 'Check times'} - ${flight.duration || 'Check duration'}\n`;
+        });
+        comprehensiveMessage += `\n`;
+      } else {
+        comprehensiveMessage += `---\n\n**✈️ Flight Options**\n`;
+        comprehensiveMessage += `Flight search from ${departureCity} - check major airlines for best rates\n\n`;
+      }
 
-      // Daily Itinerary
+      // Hotels if available
+      if (hotels.length > 0) {
+        comprehensiveMessage += `**🏨 Hotel Recommendations (${budgetPreference})**\n`;
+        hotels.slice(0, 3).forEach((hotel, index) => {
+          comprehensiveMessage += `* **${hotel.name || 'Hotel'}:** ${hotel.price || 'Price varies'}/night - ${hotel.rating || 'Check rating'} - ${hotel.location || 'Check location'} - ${hotel.description || 'Great accommodation option'}\n`;
+        });
+        comprehensiveMessage += `\n`;
+      } else {
+        comprehensiveMessage += `**🏨 Hotel Recommendations (${budgetPreference})**\n`;
+        comprehensiveMessage += `Recommended accommodations in central areas with good access to attractions\n\n`;
+      }
+
+      comprehensiveMessage += `---\n\n### **🗺️ Your Itinerary**\n\n`;
+
+      // Daily Itinerary in structured format
       if (itinerary.length > 0) {
-        comprehensiveMessage += `## 📅 Day-by-Day Itinerary\n\n`;
         itinerary.forEach((day, index) => {
-          comprehensiveMessage += `### **Day ${index + 1}: ${day.title || `Day ${index + 1}`}**\n\n`;
+          comprehensiveMessage += `**🗓️ Day ${index + 1}: ${day.title || 'Adventure Day'}**\n`;
           if (day.activities && day.activities.length > 0) {
-            day.activities.forEach(activity => {
-              comprehensiveMessage += `* **${activity.time || 'Morning'}:** ${activity.name}`;
-              if (activity.location) {
-                comprehensiveMessage += ` - ${activity.location}`;
-              }
-              if (activity.cost) {
-                comprehensiveMessage += ` - ${activity.cost}`;
-              }
-              comprehensiveMessage += `\n`;
-              if (activity.description) {
-                comprehensiveMessage += `  ${activity.description}\n`;
-              }
+            day.activities.forEach((activity) => {
+              comprehensiveMessage += `* **${activity.time || 'TBD'} - ${activity.name}**\n`;
+              if (activity.description) comprehensiveMessage += `    * *Action:* ${activity.description}\n`;
+              if (activity.duration) comprehensiveMessage += `    * *Duration:* ${activity.duration}\n`;
+              if (activity.cost) comprehensiveMessage += `    * *Cost:* ${activity.cost}\n`;
             });
           }
           comprehensiveMessage += `\n`;
         });
       }
 
-      // Accommodation Recommendations
-      if (recommendations.accommodation && recommendations.accommodation.length > 0) {
-        comprehensiveMessage += `## 🏠 Accommodation Recommendations\n\n`;
-        recommendations.accommodation.forEach(hotel => {
-          comprehensiveMessage += `### **${hotel.name}**${hotel.rating ? ` (${hotel.rating}⭐)` : ''}\n`;
-          if (hotel.location) comprehensiveMessage += `📍 ${hotel.location}\n`;
-          if (hotel.price) comprehensiveMessage += `💰 ${hotel.price}\n`;
-          if (hotel.highlights) comprehensiveMessage += `✨ ${hotel.highlights}\n`;
-          comprehensiveMessage += `\n`;
-        });
-      }
+      comprehensiveMessage += `---\n\n`;
 
-      // Restaurant Recommendations
-      if (recommendations.restaurants && recommendations.restaurants.length > 0) {
-        comprehensiveMessage += `## 🍽️ Restaurant Suggestions\n\n`;
-        recommendations.restaurants.forEach(restaurant => {
-          comprehensiveMessage += `### **${restaurant.name}**${restaurant.cuisine ? ` (${restaurant.cuisine})` : ''}\n`;
-          if (restaurant.location) comprehensiveMessage += `📍 ${restaurant.location}\n`;
-          if (restaurant.specialty) comprehensiveMessage += `🌟 Specialty: ${restaurant.specialty}\n`;
-          if (restaurant.priceRange) comprehensiveMessage += `💰 ${restaurant.priceRange}\n`;
-          comprehensiveMessage += `\n`;
-        });
-      }
-
-      // Transportation
-      if (recommendations.transportation) {
-        comprehensiveMessage += `🚇 **Getting Around Like a Local:**\n`;
-        if (recommendations.transportation.localTransport) {
-          comprehensiveMessage += `  • **Best Transport:** ${recommendations.transportation.localTransport}\n`;
+      // Weather Forecast if available
+      if (weather.current || weather.forecast) {
+        comprehensiveMessage += `**🌤️ Weather Forecast**\n`;
+        if (weather.current) {
+          comprehensiveMessage += `**Current Weather:** ${weather.current.temperature}°C, ${weather.current.description}\n`;
         }
-        if (recommendations.transportation.tips && recommendations.transportation.tips.length > 0) {
-          comprehensiveMessage += `  • **Insider Tips:**\n`;
-          recommendations.transportation.tips.forEach(tip => {
-            comprehensiveMessage += `    - ${tip}\n`;
+        if (weather.forecast && weather.forecast.length > 0) {
+          comprehensiveMessage += `**Trip Forecast:**\n`;
+          weather.forecast.slice(0, 5).forEach((day, idx) => {
+            comprehensiveMessage += `* Day ${idx + 1}: ${day.temperature || day.temp}°C, ${day.condition || day.description}\n`;
           });
         }
-        comprehensiveMessage += `\n`;
+        comprehensiveMessage += `\n---\n\n`;
       }
 
       // Budget Breakdown
-      if (recommendations.budgetBreakdown && Object.keys(recommendations.budgetBreakdown).length > 0) {
-        comprehensiveMessage += `💰 **Smart Budget Breakdown:**\n`;
-        Object.entries(recommendations.budgetBreakdown).forEach(([category, amount]) => {
-          comprehensiveMessage += `  • **${category.charAt(0).toUpperCase() + category.slice(1)}:** ${amount}\n`;
-        });
-        comprehensiveMessage += `\n`;
+      comprehensiveMessage += `### **💰 Budget Breakdown**\n`;
+      comprehensiveMessage += `*Total Estimated Cost: ${tripInfo.budget || recommendations.budgetBreakdown || '$2,500-3,500'}*\n\n`;
+      if (recommendations.budgetInfo) {
+        if (flights.length > 0) comprehensiveMessage += `* **Flights:** ${flights[0].price || 'TBD'}\n`;
+        if (recommendations.budgetInfo.accommodation) comprehensiveMessage += `* **Accommodation:** ${recommendations.budgetInfo.accommodation}\n`;
+        if (recommendations.budgetInfo.food) comprehensiveMessage += `* **Food & Dining:** ${recommendations.budgetInfo.food}\n`;
+        if (recommendations.budgetInfo.transport) comprehensiveMessage += `* **Transportation:** ${recommendations.budgetInfo.transport}\n`;
+        if (recommendations.budgetInfo.activities) comprehensiveMessage += `* **Activities:** ${recommendations.budgetInfo.activities}\n`;
       }
 
-      // Travel Tips
-      if (recommendations.travelTips && recommendations.travelTips.length > 0) {
-        comprehensiveMessage += `💡 **Essential Insider Tips:**\n`;
-        recommendations.travelTips.forEach(tip => {
-          comprehensiveMessage += `  • ${tip}\n`;
-        });
-        comprehensiveMessage += `\n`;
-      }
+      comprehensiveMessage += `\n---\n\n`;
 
-      // Weather Information
-      if (recommendations.weather) {
-        comprehensiveMessage += `🌤️ **Weather & Best Time to Visit:**\n`;
-        comprehensiveMessage += `  ${recommendations.weather}\n\n`;
-      }
-
-      // Packing Suggestions
+      // Packing and Travel Tips
+      comprehensiveMessage += `### **🎒 Packing & Travel Tips**\n\n`;
+      
       if (recommendations.packingList && recommendations.packingList.length > 0) {
-        comprehensiveMessage += `🎒 **Smart Packing Essentials:**\n`;
-        recommendations.packingList.forEach(item => {
-          comprehensiveMessage += `  • ${item}\n`;
+        comprehensiveMessage += `**✅ Packing Checklist**\n`;
+        recommendations.packingList.forEach((item) => {
+          comprehensiveMessage += `* [ ] ${item}\n`;
         });
         comprehensiveMessage += `\n`;
+      }
+
+      if (recommendations.travelTips && recommendations.travelTips.length > 0) {
+        comprehensiveMessage += `**💡 Travel Tips**\n`;
+        recommendations.travelTips.forEach((tip, idx) => {
+          comprehensiveMessage += `${idx + 1}. ${tip}\n`;
+        });
+      }
+
+      // Add closing message
+      comprehensiveMessage += `\n\nThis plan is completely customizable! Want to adjust anything? Just let me know! 🛠️✨`;
+
+      return comprehensiveMessage.trim();
+      
+      // Old narrative code below is skipped
+      if (false && recommendations.transportation) {
+        comprehensiveMessage += `Getting around is easy once you know the tricks. `;
+
+        if (recommendations.transportation.localTransport) {
+          comprehensiveMessage += `Your best bet for getting around is ${recommendations.transportation.localTransport}. `;
+        }
+
+        if (recommendations.transportation.tips && recommendations.transportation.tips.length > 0) {
+          comprehensiveMessage += `Here are some insider tips that'll save you time and hassle: `;
+          recommendations.transportation.tips.forEach((tip, idx) => {
+            if (idx > 0) comprehensiveMessage += `, `;
+            comprehensiveMessage += `${tip.toLowerCase()}`;
+          });
+          comprehensiveMessage += `.`;
+        }
+
+        comprehensiveMessage += `\n\n`;
+      }
+
+      // Budget Breakdown in pure paragraph format - NO headers
+      if (recommendations.budgetBreakdown && Object.keys(recommendations.budgetBreakdown).length > 0) {
+        comprehensiveMessage += `Let's talk money for a second. `;
+
+        const budgetEntries = Object.entries(recommendations.budgetBreakdown);
+        budgetEntries.forEach(([category, amount], idx) => {
+          const catName = category.charAt(0).toUpperCase() + category.slice(1);
+
+          if (idx === 0) {
+            comprehensiveMessage += `You're looking at roughly ${amount} for ${catName.toLowerCase()}`;
+          } else if (idx === budgetEntries.length - 1) {
+            comprehensiveMessage += `, and ${amount} for ${catName.toLowerCase()}`;
+          } else {
+            comprehensiveMessage += `, ${amount} for ${catName.toLowerCase()}`;
+          }
+        });
+
+        comprehensiveMessage += `. This gives you a comfortable trip without overspending, leaving room for those spontaneous moments that make travel magical.\n\n`;
+      }
+
+      // Travel Tips in pure paragraph format - NO headers
+      if (recommendations.travelTips && recommendations.travelTips.length > 0) {
+        comprehensiveMessage += `Here's some travel wisdom that'll make your trip smoother. `;
+
+        recommendations.travelTips.forEach((tip, idx) => {
+          if (idx === 0) {
+            comprehensiveMessage += `${tip}`;
+          } else {
+            comprehensiveMessage += ` ${tip}`;
+          }
+
+          if (idx < recommendations.travelTips.length - 1) {
+            comprehensiveMessage += `.`;
+          }
+        });
+
+        comprehensiveMessage += `. These little insights can turn a good trip into an extraordinary one.\n\n`;
+      }
+
+      // Weather Information in pure paragraph format - NO headers
+      if (recommendations.weather) {
+        comprehensiveMessage += `Weather-wise, ${recommendations.weather.toLowerCase()} This is actually perfect timing for your adventure, giving you comfortable conditions to explore without the extremes. Pack accordingly and you'll be set! `;
+      }
+
+      // Packing Suggestions in pure paragraph format - NO headers
+      if (recommendations.packingList && recommendations.packingList.length > 0) {
+        comprehensiveMessage += `You don't need to bring your entire closet, but these essentials will make your life so much easier: `;
+
+        recommendations.packingList.forEach((item, idx) => {
+          if (idx === recommendations.packingList.length - 1) {
+            comprehensiveMessage += `and ${item.toLowerCase()}`;
+          } else if (idx > 0) {
+            comprehensiveMessage += `, ${item.toLowerCase()}`;
+          } else {
+            comprehensiveMessage += `${item.toLowerCase()}`;
+          }
+        });
+
+        comprehensiveMessage += `. Trust me, you'll thank yourself for bringing these!\n\n`;
       }
 
       return comprehensiveMessage.trim();
@@ -1596,11 +2000,24 @@ Create a message that's easy to scan, visually appealing, and makes the user exc
    * Send final plan with feedback request via WebSocket
    */
   sendFinalPlanWithFeedbackRequest(userId, socketService, planMessage, tripDetails = null) {
-    const feedbackMessage = `\n\n🎯 **What do you think?**\n\nThis plan is completely customizable! Want to:\n• Add more cultural experiences?\n• Include more food adventures?\n• Adjust the pace or activities?\n• Change accommodation style?\n• Modify the budget?\n\nJust let me know what you'd like to adjust! 🛠️✨`;
+    const feedbackMessage = `\n\n---\n\n🎯 **What do you think?**\n\nThis plan is completely customizable! Want to add more cultural experiences, include more food adventures, adjust the pace of activities, change the accommodation style, or modify the budget? Just let me know what you'd like to adjust and I'll reshape the plan to match your vision perfectly! 🛠️✨`;
 
     const completeMessage = planMessage + feedbackMessage;
 
+    // Get the comprehensive planning data from the user's planning process
+    const planningProcess = this.planningProcesses.get(userId);
+    const structuredData = planningProcess?.result || {};
+
+    console.log('🔍 DEBUG: Full structured data:', JSON.stringify(structuredData, null, 2));
+
+    // If socketService wasn't passed, try to get it from the stored planning process
+    if (!socketService && planningProcess?.socketService) {
+      console.log('⚠️ socketService not passed, retrieving from stored planning process');
+      socketService = planningProcess.socketService;
+    }
+
     if (socketService) {
+      console.log('✅ socketService found, sending WebSocket message to user:', userId);
       socketService.sendStatusUpdate(userId, {
         stage: 'completed',
         message: completeMessage,
@@ -1609,7 +2026,23 @@ Create a message that's easy to scan, visually appealing, and makes the user exc
         metadata: {
           type: 'trip_plan_with_feedback',
           allowsFeedback: true,
-          tripDetails: tripDetails,
+          destination: tripDetails?.destination,
+          duration: tripDetails?.duration,
+          travelers: tripDetails?.travelers,
+          trip_type: tripDetails?.trip_type || 'solo',
+          rawData: {
+            // Simple text-based data structure - no cards
+            destination: tripDetails?.destination,
+            travelers: tripDetails?.travelers,
+            duration: tripDetails?.duration,
+            estimated_budget: structuredData.tripInfo?.budget || structuredData.recommendations?.budgetBreakdown || '$2,500-3,500',
+            itinerary_text: structuredData.itinerary || 'Detailed itinerary will be provided',
+            weather_info: structuredData.data?.weather?.current || 'Pleasant weather conditions',
+            packing_tips: structuredData.recommendations?.packingList || [],
+            cultural_notes: structuredData.data?.culturalTips || [],
+            safety_info: structuredData.data?.safetyInfo || 'General travel safety advice',
+            budget_breakdown: structuredData.recommendations?.budgetBreakdown || {}
+          },
           feedbackPrompts: [
             "Add more cultural activities",
             "Include more food experiences",
@@ -1620,6 +2053,9 @@ Create a message that's easy to scan, visually appealing, and makes the user exc
           ]
         }
       });
+    } else {
+      console.error('❌ socketService is null/undefined, cannot send trip plan to user:', userId);
+      console.error('❌ This means the WebSocket connection is not available');
     }
     console.log(`📨 Sent comprehensive trip plan with feedback request to ${userId}`);
   }

@@ -14,8 +14,8 @@ import EnhancedDiscover from "./pages/EnhancedDiscover";
 import Profile from "./pages/Profile";
 import Messages from "./pages/Messages";
 import EnhancedMessages from "./pages/EnhancedMessages";
-import Map from "./pages/Map";
 import Matches from "./pages/Matches";
+import AITravelPlanner from "./pages/AITravelPlanner";
 import GlobeDemo from "./pages/GlobeDemo";
 import NotFound from "./pages/NotFound";
 import { ProfileSetupFlow } from "./components/ProfileSetupFlow";
@@ -28,7 +28,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Index />} />
@@ -78,14 +78,14 @@ const App = () => (
                 <Messages />
               </ProtectedRoute>
             } />
-            <Route path="/map" element={
-              <ProtectedRoute>
-                <Map />
-              </ProtectedRoute>
-            } />
             <Route path="/globe" element={
               <ProtectedRoute>
                 <GlobeDemo />
+              </ProtectedRoute>
+            } />
+            <Route path="/ai-travel-planner" element={
+              <ProtectedRoute>
+                <AITravelPlanner />
               </ProtectedRoute>
             } />
             
