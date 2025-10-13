@@ -88,7 +88,7 @@ export const sampleUsers: User[] = [
     id: '1',
     name: 'Maya',
     age: 28,
-    avatar: 'https://randomuser.me/api/portraits/women/1.jpg',
+    avatar: 'https://randomuser.me/api/portraits/women/25.jpg',
     coverImage: 'https://picsum.photos/800/600?random=101',
     location: 'San Francisco, CA',
     coordinates: generateCoordinates('San Francisco, CA'),
@@ -142,8 +142,8 @@ export const sampleUsers: User[] = [
     const destination = getRandomItem(destinations);
     const bio = getRandomItem(bios);
     
-    const avatarId = (index % 50) + 1;
-    const coverId = (index % 100) + 1;
+    const avatarId = (index % 50) + 2; // Start from 2 to avoid conflicts
+    const coverId = (index % 100) + 2; // Start from 2 to avoid conflicts
     
     return {
       id,
