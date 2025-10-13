@@ -572,11 +572,15 @@ const AITravelPlanner: React.FC = () => {
         <div className="p-4 border-t border-border/50 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-full bg-gradient-ocean flex items-center justify-center">
-              <span className="text-sm font-bold text-white">J</span>
+              <span className="text-sm font-bold text-white">
+                {userContext?.userProfile?.name?.charAt(0).toUpperCase() || user?.displayName?.charAt(0).toUpperCase() || 'T'}
+              </span>
             </div>
             {sidebarExpanded && (
               <div className="flex-1">
-                <div className="text-sm font-medium text-foreground">Jaljala</div>
+                <div className="text-sm font-medium text-foreground">
+                  {userContext?.userProfile?.name || user?.displayName || 'Traveler'}
+                </div>
                 <div className="text-xs text-muted-foreground">Travel Enthusiast</div>
               </div>
             )}
