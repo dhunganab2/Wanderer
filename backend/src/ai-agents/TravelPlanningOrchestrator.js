@@ -4,10 +4,10 @@
  * for natural trip planning experiences
  */
 import ConversationFlowManager from './ConversationFlowManager.js';
-import ChiefTravelPlannerAgent from '../agents/ChiefTravelPlannerAgent.js';
-import ProfileAnalystAgent from '../agents/ProfileAnalystAgent.js';
-import DataScoutAgent from '../agents/DataScoutAgent.js';
-import ItineraryArchitectAgent from '../agents/ItineraryArchitectAgent.js';
+import ChiefTravelPlannerAgent from './ChiefTravelPlannerAgent.js';
+import ProfileAnalystAgent from './ProfileAnalystAgent.js';
+import DataScoutAgent from './DataScoutAgent.js';
+import ItineraryArchitectAgent from './ItineraryArchitectAgent.js';
 
 export default class TravelPlanningOrchestrator {
   constructor(socketService = null) {

@@ -165,10 +165,10 @@ export default function Landing() {
       </section>
 
       {/* AI Travel Planner Section */}
-      <section className="relative py-24 bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-hidden">
+      <section className="relative py-24 bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-hidden">
         {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10" />
+        <div className="absolute inset-0 opacity-10 dark:opacity-20">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 dark:from-blue-400/20 dark:via-purple-400/20 dark:to-pink-400/20" />
         </div>
         
         <div className="max-w-7xl mx-auto px-6 relative">
@@ -177,10 +177,10 @@ export default function Landing() {
               <Bot className="w-4 h-4" />
               <span>Powered by AI</span>
             </div>
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6 font-display">
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-6 font-display">
               Meet Your AI Travel Planner
             </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto leading-relaxed">
               Get personalized trip plans with real-time data, detailed itineraries, and expert recommendations. 
               Our multi-agent AI system creates the perfect travel experience just for you.
             </p>
@@ -194,8 +194,8 @@ export default function Landing() {
                   <Zap className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Real-Time Data</h3>
-                  <p className="text-gray-600">Live flight prices, hotel availability, and current weather conditions for accurate planning.</p>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Real-Time Data</h3>
+                  <p className="text-gray-600 dark:text-gray-300">Live flight prices, hotel availability, and current weather conditions for accurate planning.</p>
                 </div>
               </div>
               
@@ -204,8 +204,8 @@ export default function Landing() {
                   <Sparkles className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">AI-Generated Itineraries</h3>
-                  <p className="text-gray-600">Detailed day-by-day plans with activities, restaurants, and cultural insights tailored to your preferences.</p>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">AI-Generated Itineraries</h3>
+                  <p className="text-gray-600 dark:text-gray-300">Detailed day-by-day plans with activities, restaurants, and cultural insights tailored to your preferences.</p>
                 </div>
               </div>
               
@@ -214,22 +214,22 @@ export default function Landing() {
                   <Heart className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Personalized Experience</h3>
-                  <p className="text-gray-600">Learn from your travel history and preferences to suggest destinations and activities you'll love.</p>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Personalized Experience</h3>
+                  <p className="text-gray-600 dark:text-gray-300">Learn from your travel history and preferences to suggest destinations and activities you'll love.</p>
                 </div>
               </div>
             </div>
             
             {/* Right Side - CTA */}
             <div className="text-center lg:text-left">
-              <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 border border-gray-100 dark:border-gray-700">
                 <div className="w-16 h-16 mx-auto lg:mx-0 mb-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
                   <Bot className="w-8 h-8 text-white" />
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
                   Try AI Travel Planning
                 </h3>
-                <p className="text-gray-600 mb-6">
+                <p className="text-gray-600 dark:text-gray-300 mb-6">
                   Get a complete travel plan in minutes. Just tell us where you want to go and we'll handle the rest.
                 </p>
                 {user ? (

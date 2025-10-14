@@ -315,8 +315,18 @@ export default function Profile() {
   };
 
   const handleCoverClick = () => {
-    if (isEditing && isOwnProfile) {
-      coverInputRef.current?.click();
+    if (isOwnProfile) {
+      // If not in edit mode, enter edit mode first
+      if (!isEditing) {
+        setIsEditing(true);
+        setEditForm(currentUser);
+        // Small delay to ensure edit mode is activated
+        setTimeout(() => {
+          coverInputRef.current?.click();
+        }, 100);
+      } else {
+        coverInputRef.current?.click();
+      }
     }
   };
 
@@ -371,20 +381,31 @@ export default function Profile() {
                 className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-sunset flex items-center justify-center relative overflow-hidden">
+              <div 
+                className={cn(
+                  "w-full h-full bg-gradient-sunset flex items-center justify-center relative overflow-hidden",
+                  isOwnProfile && "cursor-pointer hover:opacity-90 transition-opacity duration-300"
+                )}
+                onClick={isOwnProfile ? handleCoverClick : undefined}
+                title={isOwnProfile ? "Click to upload cover photo" : undefined}
+              >
                 <div className="absolute inset-0 bg-gradient-to-br from-black/20 to-transparent"></div>
                 <div className="text-center text-white z-10">
                   <ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-70 animate-float" />
-                  <p className="text-lg font-semibold opacity-90">Add Cover Photo</p>
-                  <p className="text-sm opacity-70 mt-1">Show off your travel adventures</p>
+                  <p className="text-lg font-semibold opacity-90">
+                    {isOwnProfile ? "Add Cover Photo" : "No Cover Photo"}
+                  </p>
+                  <p className="text-sm opacity-70 mt-1">
+                    {isOwnProfile ? "Click to upload your travel adventures" : ""}
+                  </p>
                 </div>
                 <div className="absolute top-4 right-4 w-12 h-12 rounded-full blur-lg animate-bounce-gentle" style={{backgroundColor: 'rgba(255, 255, 255, 0.2)'}}></div>
                 <div className="absolute bottom-6 left-6 w-8 h-8 rounded-full blur-md animate-float" style={{animationDelay: '1s', backgroundColor: 'rgba(255, 255, 255, 0.15)'}}></div>
                       </div>
                     )}
 
-            {/* Cover Upload Overlay */}
-            {isEditing && isOwnProfile && (
+            {/* Cover Upload Overlay - Show for existing cover photos */}
+            {currentUser.coverImage && isOwnProfile && (
               <div
                 className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-all duration-300 cursor-pointer backdrop-blur-sm"
                 style={{backgroundColor: 'rgba(0, 0, 0, 0.5)'}}

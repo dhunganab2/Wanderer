@@ -3,7 +3,7 @@
  * Specializes in designing personalized day-by-day travel itineraries
  * combining user preferences with real travel data
  */
-import BaseAgent from '../utils/BaseAgent.js';
+import BaseAgent from './BaseAgent.js';
 
 export default class ItineraryArchitectAgent extends BaseAgent {
   constructor() {

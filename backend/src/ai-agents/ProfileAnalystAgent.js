@@ -3,7 +3,7 @@
  * Specializes in analyzing user profiles and travel preferences
  * to personalize the travel experience
  */
-import BaseAgent from '../utils/BaseAgent.js';
+import BaseAgent from './BaseAgent.js';
 
 export default class ProfileAnalystAgent extends BaseAgent {
   constructor() {
