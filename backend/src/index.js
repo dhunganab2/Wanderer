@@ -29,7 +29,9 @@ const io = new Server(server, {
     origin: [
       process.env.FRONTEND_URL || "http://localhost:8080",
       "http://localhost:8080",
-      "http://localhost:8081"
+      "http://localhost:8081",
+      "http://localhost:8082",
+      "http://localhost:8083"
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -54,7 +56,9 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || "http://localhost:8080",
     "http://localhost:8080",
-    "http://localhost:8081"
+    "http://localhost:8081",
+    "http://localhost:8082",
+    "http://localhost:8083"
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-conversation-id', 'x-user-id'],

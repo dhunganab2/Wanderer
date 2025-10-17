@@ -33,7 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useParams, useNavigate } from 'react-router-dom';
-import { userService } from '@/services/firebaseService';
+import { userService, matchingService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { sampleUsers, travelStyleOptions } from '@/data/sampleUsers';
@@ -55,11 +55,12 @@ export default function Profile() {
   const [newInterest, setNewInterest] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const [isMatched, setIsMatched] = useState(false);
 
   // Use viewed user (route param) or fallback to current auth user
   const [viewedUser, setViewedUser] = useState<UserType | null>(null);
   const currentUser = viewedUser || user || sampleUsers[0];
-  
+
   // Check if viewing own profile
   const isOwnProfile = !userId || (authUser && userId === authUser.uid) || (!userId && user);
   const isViewingOthersProfile = userId && authUser && userId !== authUser.uid;
@@ -82,6 +83,29 @@ export default function Profile() {
     };
     load();
   }, [userId, user]);
+
+  // Check if current user is matched with viewed user
+  useEffect(() => {
+    const checkMatch = async () => {
+      if (!authUser || !userId || isOwnProfile) {
+        setIsMatched(false);
+        return;
+      }
+
+      try {
+        const matches = await matchingService.getUserMatches(authUser.uid);
+        const isUserMatched = matches.some(match =>
+          match.users.includes(userId) && match.status === 'accepted'
+        );
+        setIsMatched(isUserMatched);
+      } catch (error) {
+        console.error('Error checking match status:', error);
+        setIsMatched(false);
+      }
+    };
+
+    checkMatch();
+  }, [authUser, userId, isOwnProfile]);
 
   // Load user images from database
   useEffect(() => {
@@ -464,7 +488,7 @@ export default function Profile() {
 
         {/* Profile Actions */}
         <div className="absolute top-6 right-6 flex gap-3 animate-fade-in" style={{animationDelay: '0.4s'}}>
-          {isViewingOthersProfile && (
+          {isViewingOthersProfile && isMatched && (
             <Button
               onClick={handleMessageUser}
               variant="hero"
@@ -587,7 +611,7 @@ export default function Profile() {
                   <Edit3 className="w-5 h-5 mr-2" />
                   Edit Profile
                 </Button>
-              ) : (
+              ) : isMatched ? (
                 <Button
                   onClick={handleMessageUser}
                   variant="hero"
@@ -597,6 +621,12 @@ export default function Profile() {
                   <MessageCircle className="w-5 h-5 mr-2" />
                   Message {currentUser.name}
                 </Button>
+              ) : (
+                <div className="text-center py-8 glass-card p-6 rounded-lg">
+                  <p className="text-muted-foreground">
+                    You need to match with {currentUser.name} to send messages
+                  </p>
+                </div>
                       )}
                     </div>
                   </div>

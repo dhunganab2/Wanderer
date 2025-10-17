@@ -32,8 +32,11 @@ export default function Matches() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [likes, setLikes] = useState<any[]>([]);
+  const [likesReceived, setLikesReceived] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [matchSuccess, setMatchSuccess] = useState<string | null>(null);
+  const [likingBack, setLikingBack] = useState<string | null>(null);
 
   // Debug likes state changes
   useEffect(() => {
@@ -47,32 +50,40 @@ export default function Matches() {
         console.log('No auth user, skipping data load');
         return;
       }
-      
+
       try {
         setLoading(true);
         console.log('🔄 Starting data load for user:', authUser.uid);
 
         // Fetch all in parallel to avoid flicker
-        const [dbUsers, userLikes, userMatches] = await Promise.all([
+        const [dbUsers, userLikes, userMatches, receivedLikes] = await Promise.all([
           userService.getDiscoveryUsers('', []),
           matchingService.getUserLikes(authUser.uid),
-          matchingService.getUserMatches(authUser.uid)
+          matchingService.getUserMatches(authUser.uid),
+          matchingService.getLikesReceived(authUser.uid)
         ]);
 
         console.log('✅ Loaded users:', dbUsers.length);
         console.log('✅ Loaded likes for user', authUser.uid, ':', userLikes.length, 'likes');
         console.log('✅ Loaded matches for user', authUser.uid, ':', userMatches.length, 'matches');
+        console.log('✅ Loaded likes received:', receivedLikes.length, 'likes received');
+        
+        // Debug: Log the actual data
+        console.log('🔍 Debug - Likes received data:', receivedLikes);
+        console.log('🔍 Debug - Matches data:', userMatches);
 
         // Commit together
         setUsers(dbUsers);
         setLikes(userLikes);
         setMatches(userMatches);
-        
+        setLikesReceived(receivedLikes);
+
       } catch (error) {
         console.error('❌ Error loading data:', error);
         setUsers([]);
         setLikes([]);
         setMatches([]);
+        setLikesReceived([]);
       } finally {
         setLoading(false);
         console.log('✅ Data loading completed');
@@ -173,20 +184,100 @@ export default function Matches() {
     navigate(`/profile/${userId}`);
   };
 
+  // Handle Like Back - when you like someone who already liked you
+  const handleLikeBack = async (userId: string) => {
+    if (!authUser || likingBack === userId) return;
+
+    try {
+      setLikingBack(userId);
+      console.log('💖 Liking back user:', userId);
+
+      // Record the like AND check for match using backend API
+      const result = await matchingService.recordSwipeWithBackend({
+        type: 'like',
+        userId: authUser.uid,
+        swipedUserId: userId
+      });
+
+      console.log('Backend swipe result:', result);
+
+      if (result.match) {
+        console.log('🎉 IT\'S A MATCH! Match ID:', result.matchId);
+      }
+
+      // Always refresh data from backend to ensure consistency
+      console.log('🔄 Refreshing data after like back...');
+      const [userMatches, receivedLikes, userLikes] = await Promise.all([
+        matchingService.getUserMatches(authUser.uid),
+        matchingService.getLikesReceived(authUser.uid),
+        matchingService.getUserLikes(authUser.uid)
+      ]);
+
+      // Update all state with fresh data from backend
+      setMatches(userMatches);
+      setLikesReceived(receivedLikes);
+      setLikes(userLikes);
+
+      console.log('✅ Data refreshed:', {
+        matches: userMatches.length,
+        likesReceived: receivedLikes.length,
+        likes: userLikes.length
+      });
+
+      if (result.match) {
+        console.log('🎉 Match created! Refreshed matches:', userMatches.length);
+        // Show success message
+        const matchedUser = receivedLikes.find(like => like.user.id === userId)?.user;
+        if (matchedUser) {
+          setMatchSuccess(`🎉 It's a match with ${matchedUser.name}!`);
+          // Clear success message after 3 seconds
+          setTimeout(() => setMatchSuccess(null), 3000);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error liking back user:', error);
+      // Still refresh data even if there was an error
+      try {
+        const [userMatches, receivedLikes] = await Promise.all([
+          matchingService.getUserMatches(authUser.uid),
+          matchingService.getLikesReceived(authUser.uid)
+        ]);
+        setMatches(userMatches);
+        setLikesReceived(receivedLikes);
+      } catch (refreshError) {
+        console.error('Error refreshing data after error:', refreshError);
+      }
+    } finally {
+      setLikingBack(null);
+    }
+  };
+
   // Refresh data from database
   const refreshData = async () => {
     if (!authUser) return;
     
     try {
       setLoading(true);
+      console.log('🔄 Refreshing all data from backend...');
       
-      // Load user's likes
-      const userLikes = await matchingService.getUserLikes(authUser.uid);
+      // Load all data in parallel
+      const [userLikes, userMatches, receivedLikes] = await Promise.all([
+        matchingService.getUserLikes(authUser.uid),
+        matchingService.getUserMatches(authUser.uid),
+        matchingService.getLikesReceived(authUser.uid)
+      ]);
+      
+      // Update all state
       setLikes(userLikes);
-      
-      // Load user's matches
-      const userMatches = await matchingService.getUserMatches(authUser.uid);
       setMatches(userMatches);
+      setLikesReceived(receivedLikes);
+      
+      console.log('✅ Data refreshed:', {
+        likes: userLikes.length,
+        matches: userMatches.length,
+        likesReceived: receivedLikes.length
+      });
       
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -368,16 +459,45 @@ export default function Matches() {
                 Connect with travelers who liked you back
               </p>
             </div>
-            <Button 
-              variant="outline" 
-              onClick={refreshData}
-              disabled={loading}
-              className="flex items-center gap-2"
-            >
-              <Clock className="w-4 h-4" />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={refreshData}
+                disabled={loading}
+                className="flex items-center gap-2"
+              >
+                <Clock className="w-4 h-4" />
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  console.log('🔄 Force clearing all caches and refreshing...');
+                  // Clear any potential caches
+                  if ('caches' in window) {
+                    caches.keys().then(names => {
+                      names.forEach(name => {
+                        caches.delete(name);
+                      });
+                    });
+                  }
+                  // Force refresh
+                  window.location.reload();
+                }}
+                className="flex items-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Force Refresh
+              </Button>
+            </div>
           </div>
+
+          {/* Success Message */}
+          {matchSuccess && (
+            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <p className="text-green-600 font-medium text-center">{matchSuccess}</p>
+            </div>
+          )}
 
           {/* Search */}
           <div className="relative max-w-md mb-8">
@@ -392,10 +512,14 @@ export default function Matches() {
 
           {/* Tabs */}
           <Tabs defaultValue="matches" className="space-y-6">
-            <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsList className="grid w-full max-w-2xl grid-cols-3">
               <TabsTrigger value="matches" className="flex items-center gap-2">
                 <Heart className="w-4 h-4" />
                 Matches ({matchedUserObjects.length})
+              </TabsTrigger>
+              <TabsTrigger value="received" className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                Likes Received ({likesReceived.filter(like => like.user).length})
               </TabsTrigger>
               <TabsTrigger value="likes" className="flex items-center gap-2">
                 <Clock className="w-4 h-4" />
@@ -485,6 +609,85 @@ export default function Matches() {
                   </p>
                   <Button variant="hero" asChild>
                     <a href="/discover">Start Swiping</a>
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Likes Received - People who liked you */}
+            <TabsContent value="received">
+              {loading ? (
+                <div className="text-center py-16">
+                  <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading likes received...</p>
+                </div>
+              ) : likesReceived.filter(like => like.user).length > 0 ? (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {likesReceived.filter(like => like.user).map((like) => (
+                    <Card key={like.id} className="overflow-hidden hover:shadow-medium transition-all duration-300 hover-lift">
+                      <div className="relative">
+                        <img
+                          src={like.user.avatar}
+                          alt={like.user.name}
+                          className="w-full h-64 object-cover"
+                        />
+                        {like.type === 'superlike' && (
+                          <div className="absolute top-3 right-3">
+                            <Badge variant="secondary" className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-0">
+                              <Star className="w-3 h-3 mr-1 fill-current" />
+                              Super Like
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                      <CardContent className="p-6 space-y-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-foreground font-display">{like.user.name}, {like.user.age}</h3>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                            <MapPin className="w-4 h-4" />
+                            {like.user.location}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="w-4 h-4 text-primary" />
+                          <span className="text-muted-foreground">Next: {like.user.nextDestination}</span>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Button
+                            onClick={() => handleLikeBack(like.user.id)}
+                            disabled={likingBack === like.user.id}
+                            className="w-full bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white disabled:opacity-50"
+                          >
+                            <Heart className="w-4 h-4 mr-2 fill-current" />
+                            {likingBack === like.user.id ? 'Liking...' : 'Like Back'}
+                          </Button>
+                          <Button
+                            onClick={() => handleViewProfile(like.user.id)}
+                            variant="outline"
+                            className="w-full"
+                          >
+                            View Profile
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16">
+                  <div className="w-24 h-24 rounded-full bg-gradient-sunrise/10 flex items-center justify-center mx-auto mb-6">
+                    <Sparkles className="w-12 h-12 text-muted-foreground" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-foreground mb-4 font-display">
+                    No likes received yet
+                  </h2>
+                  <p className="text-muted-foreground mb-8 max-w-md mx-auto">
+                    Keep swiping and engaging! When someone likes you, they'll appear here.
+                  </p>
+                  <Button variant="hero" asChild>
+                    <a href="/discover">Start Discovering</a>
                   </Button>
                 </div>
               )}

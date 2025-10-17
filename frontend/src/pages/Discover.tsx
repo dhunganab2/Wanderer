@@ -56,15 +56,38 @@ export default function Discover() {
       
       try {
         setLoadingUsers(true);
-        
-        // Get swiped user IDs to exclude them
-        const swipedUserIds = swipeHistory.map(swipe => swipe.userId);
-        
+
+        // Load swipes and matches from database
+        // We should exclude:
+        // 1. Users we've PASSED on (swiped left)
+        // 2. Users we're already MATCHED with
+        // We should NOT exclude users we've LIKED (they need to see us to swipe back)
+        const [dbSwipes, dbMatches] = await Promise.all([
+          matchingService.getUserSwipes(authUser.uid),
+          matchingService.getUserMatches(authUser.uid)
+        ]);
+
+        // Get user IDs to exclude from discovery
+        const passedUserIds = dbSwipes
+          .filter(swipe => swipe.type === 'pass')
+          .map(swipe => swipe.swipedUserId);
+
+        const matchedUserIds = dbMatches
+          .filter(match => match.status === 'accepted')
+          .flatMap(match => match.users)
+          .filter(id => id !== authUser.uid);
+
+        // Combine passed and matched users to exclude
+        const excludedUserIds = [...new Set([...passedUserIds, ...matchedUserIds])];
+
         let users: User[] = [];
-        
+
         console.log('🔍 Loading discovery users...');
         console.log('Auth user ID:', authUser.uid);
-        console.log('Swiped user IDs:', swipedUserIds.length);
+        console.log('Total swipes from DB:', dbSwipes.length);
+        console.log('Passed users to exclude:', passedUserIds.length, passedUserIds);
+        console.log('Matched users to exclude:', matchedUserIds.length, matchedUserIds);
+        console.log('Total excluded user IDs:', excludedUserIds.length, excludedUserIds);
         console.log('Discovery mode:', discoveryMode);
         
         try {
@@ -74,23 +97,23 @@ export default function Discover() {
           switch (discoveryMode) {
             case 'algorithm':
               if (currentUser) {
-                users = await userService.getEnhancedDiscoveryUsers(authUser.uid, swipedUserIds, filters, 150);
+                users = await userService.getEnhancedDiscoveryUsers(authUser.uid, excludedUserIds, filters, 150);
               } else {
-                users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+                users = await userService.getDiscoveryUsers(authUser.uid, excludedUserIds);
               }
               break;
-              
+
             case 'location':
               if (userLocation) {
-                users = await userService.getLocationBasedUsers(authUser.uid, userLocation, filters.maxDistance, swipedUserIds);
+                users = await userService.getLocationBasedUsers(authUser.uid, userLocation, filters.maxDistance, excludedUserIds);
               } else {
-                users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+                users = await userService.getDiscoveryUsers(authUser.uid, excludedUserIds);
               }
               break;
-              
+
             case 'random':
             default:
-              users = await userService.getDiscoveryUsers(authUser.uid, swipedUserIds);
+              users = await userService.getDiscoveryUsers(authUser.uid, excludedUserIds);
               break;
           }
           
@@ -104,12 +127,12 @@ export default function Discover() {
           
         } catch (firebaseError) {
           console.warn('❌ Firebase loading failed, using enhanced sample data:', firebaseError);
-          
-          // Fallback to enhanced sample data
+
+          // Fallback to enhanced sample data (exclude passes and matches only)
           users = enhancedUsers.filter(user => {
             const isNotCurrentUser = user.id !== authUser.uid;
-            const notSwiped = !swipedUserIds.includes(user.id);
-            return isNotCurrentUser && notSwiped;
+            const notExcluded = !excludedUserIds.includes(user.id);
+            return isNotCurrentUser && notExcluded;
           });
         }
         
@@ -131,23 +154,41 @@ export default function Discover() {
         
       } catch (error) {
         console.error('❌ Error in loadDiscoveryUsers:', error);
-        
+
         // Final fallback to sample users
-        const fallbackUsers = enhancedUsers.filter(user => 
-          user.id !== authUser.uid && !swipeHistory.map(s => s.userId).includes(user.id)
-        );
-        console.log('🔄 Fallback users available:', fallbackUsers.length);
-        
-        setUsers(fallbackUsers);
-        setDiscoveryUsers(fallbackUsers);
-        console.log('🔄 Using fallback users:', fallbackUsers.length);
+        try {
+          const [dbSwipes, dbMatches] = await Promise.all([
+            matchingService.getUserSwipes(authUser.uid),
+            matchingService.getUserMatches(authUser.uid)
+          ]);
+
+          const passedIds = dbSwipes.filter(s => s.type === 'pass').map(s => s.swipedUserId);
+          const matchedIds = dbMatches
+            .filter(m => m.status === 'accepted')
+            .flatMap(m => m.users)
+            .filter(id => id !== authUser.uid);
+
+          const excludedIds = [...new Set([...passedIds, ...matchedIds])];
+
+          const fallbackUsers = enhancedUsers.filter(user =>
+            user.id !== authUser.uid && !excludedIds.includes(user.id)
+          );
+          console.log('🔄 Fallback users available:', fallbackUsers.length);
+
+          setUsers(fallbackUsers);
+          setDiscoveryUsers(fallbackUsers);
+          console.log('🔄 Using fallback users:', fallbackUsers.length);
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError);
+          setDiscoveryUsers([]);
+        }
       } finally {
         setLoadingUsers(false);
       }
     };
 
     loadDiscoveryUsers();
-  }, [authUser, swipeHistory, filters, discoveryMode, userLocation, currentUser]);
+  }, [authUser, filters, discoveryMode, userLocation, currentUser]);
 
   // Filter users based on current filter settings
   const filteredUsers = useMemo(() => {
@@ -188,38 +229,62 @@ export default function Discover() {
       toast.error('Please log in to like users');
       return;
     }
-    
+
     try {
       console.log('🔥 Liked user:', userId, 'by user:', authUser.uid);
-      
+
       // Record swipe in local store
       swipeUser({ type: 'like', userId, timestamp: new Date().toISOString() });
       console.log('✅ Swipe recorded in local store');
-      
-      // Record swipe in Firebase
-      await matchingService.recordSwipe({
+
+      // Record swipe via backend API (handles match detection automatically)
+      const result = await matchingService.recordSwipeWithBackend({
         type: 'like',
         userId: authUser.uid,
         swipedUserId: userId
       });
-      console.log('✅ Swipe recorded in Firebase');
-      
-      // Just show like sent message - don't check for matches immediately
+      console.log('✅ Swipe recorded via backend API, result:', result);
+
       const user = filteredUsers.find(u => u.id === userId);
-      if (user) {
-        console.log('👍 Like sent to user:', user.name, user.id);
-        toast.success(`Like sent to ${user.name}!`);
-        console.log('ℹ️ Like recorded - they will see this in their discovery and can like back to create a match');
+
+      // Check if this created a match
+      if (result.match) {
+        console.log('🎉 IT\'S A MATCH! Match ID:', result.matchId);
+        if (user) {
+          setMatchedUser(user);
+          setShowMatchNotification(true);
+          addMatch({
+            id: result.matchId || `${authUser.uid}_${userId}`,
+            users: [authUser.uid, userId],
+            matchedAt: new Date().toISOString(),
+            status: 'accepted',
+            commonInterests: [],
+            compatibilityScore: 0
+          });
+          toast.success(`🎉 It's a match with ${user.name}!`);
+
+          setTimeout(() => {
+            setShowMatchNotification(false);
+            setMatchedUser(null);
+          }, 3000);
+        }
       } else {
-        console.warn('⚠️ User not found in filteredUsers:', userId);
-        toast.success(`Like sent!`);
+        // Just a like, not a match yet
+        if (user) {
+          console.log('👍 Like sent to user:', user.name, user.id);
+          toast.success(`Like sent to ${user.name}!`);
+          console.log('ℹ️ Like recorded - they will see this in "Likes Received" and can like back to create a match');
+        } else {
+          console.warn('⚠️ User not found in filteredUsers:', userId);
+          toast.success(`Like sent!`);
+        }
       }
-      
+
     } catch (error) {
       console.error('❌ Error liking user:', error);
       toast.error('Failed to like user. Please try again.');
     }
-    
+
     if (viewMode === 'stack') {
       setCurrentCardIndex(prev => prev + 1);
     }
@@ -230,27 +295,27 @@ export default function Discover() {
       toast.error('Please log in to pass users');
       return;
     }
-    
+
     try {
       console.log('❌ Passed user:', userId, 'by user:', authUser.uid);
-      
+
       // Record swipe in local store
       swipeUser({ type: 'pass', userId, timestamp: new Date().toISOString() });
       console.log('✅ Pass recorded in local store');
-      
-      // Record swipe in Firebase
-      await matchingService.recordSwipe({
+
+      // Record swipe via backend API
+      await matchingService.recordSwipeWithBackend({
         type: 'pass',
         userId: authUser.uid,
         swipedUserId: userId
       });
-      console.log('✅ Pass recorded in Firebase');
-      
+      console.log('✅ Pass recorded via backend API');
+
     } catch (error) {
       console.error('❌ Error passing user:', error);
       toast.error('Failed to pass user. Please try again.');
     }
-    
+
     if (viewMode === 'stack') {
       setCurrentCardIndex(prev => prev + 1);
     }
@@ -261,38 +326,62 @@ export default function Discover() {
       toast.error('Please log in to super like users');
       return;
     }
-    
+
     try {
-      console.log('Super liked user:', userId);
-      
+      console.log('⭐ Super liked user:', userId, 'by user:', authUser.uid);
+
       // Record swipe in local store
       swipeUser({ type: 'superlike', userId, timestamp: new Date().toISOString() });
-      
-      // Record swipe in Firebase
-      await matchingService.recordSwipe({
+      console.log('✅ Super like recorded in local store');
+
+      // Record swipe via backend API (handles match detection automatically)
+      const result = await matchingService.recordSwipeWithBackend({
         type: 'superlike',
         userId: authUser.uid,
         swipedUserId: userId
       });
-      
-      // Super likes have higher match chance (80%)
+      console.log('✅ Super like recorded via backend API, result:', result);
+
       const user = filteredUsers.find(u => u.id === userId);
-      if (user && Math.random() > 0.2) { // Simulate match for demo
-        setMatchedUser(user);
-        setShowMatchNotification(true);
-        toast.success(`It's a Super Match with ${user.name}! ⭐`);
-        
-        setTimeout(() => {
-          setShowMatchNotification(false);
-          setMatchedUser(null);
-        }, 3000);
+
+      // Check if this created a match
+      if (result.match) {
+        console.log('🎉 IT\'S A SUPER MATCH! Match ID:', result.matchId);
+        if (user) {
+          setMatchedUser(user);
+          setShowMatchNotification(true);
+          addMatch({
+            id: result.matchId || `${authUser.uid}_${userId}`,
+            users: [authUser.uid, userId],
+            matchedAt: new Date().toISOString(),
+            status: 'accepted',
+            commonInterests: [],
+            compatibilityScore: 0
+          });
+          toast.success(`🎉 It's a Super Match with ${user.name}! ⭐`);
+
+          setTimeout(() => {
+            setShowMatchNotification(false);
+            setMatchedUser(null);
+          }, 3000);
+        }
+      } else {
+        // Just a super like, not a match yet
+        if (user) {
+          console.log('⭐ Super like sent to user:', user.name, user.id);
+          toast.success(`Super like sent to ${user.name}! ⭐`);
+          console.log('ℹ️ Super like recorded - they will see this in "Likes Received" and can like back to create a match');
+        } else {
+          console.warn('⚠️ User not found in filteredUsers:', userId);
+          toast.success(`Super like sent! ⭐`);
+        }
       }
-      
+
     } catch (error) {
-      console.error('Error super liking user:', error);
+      console.error('❌ Error super liking user:', error);
       toast.error('Failed to super like user. Please try again.');
     }
-    
+
     if (viewMode === 'stack') {
       setCurrentCardIndex(prev => prev + 1);
     }
