@@ -3,7 +3,7 @@
  * Specializes in gathering real-time travel data from various APIs
  * including flights, hotels, weather, and local information
  */
-import BaseAgent from '../utils/BaseAgent.js';
+import BaseAgent from './BaseAgent.js';
 import fetch from 'node-fetch';
 
 export default class DataScoutAgent extends BaseAgent {

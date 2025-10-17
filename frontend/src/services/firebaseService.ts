@@ -170,22 +170,48 @@ export const userService = {
 
   // Get enhanced discovery users with compatibility scoring
   async getEnhancedDiscoveryUsers(
-    currentUserId: string, 
-    swipedUserIds: string[] = [], 
+    currentUserId: string,
+    swipedUserIds: string[] = [],
     filters: FilterSettings,
     limit: number = 100
   ): Promise<User[]> {
     try {
+      // Try to get recommendations from backend API first (uses advanced algorithm)
+      try {
+        console.log('🚀 Attempting to use backend advanced matching algorithm...');
+        const recommendations = await matchingService.getAdvancedRecommendations(
+          currentUserId,
+          {
+            ageRange: filters.ageRange,
+            maxDistance: filters.maxDistance,
+            verified: filters.verified,
+            travelStyles: filters.travelStyles,
+            destinations: filters.destinations
+          },
+          limit
+        );
+
+        if (recommendations && recommendations.length > 0) {
+          console.log('✅ Using backend advanced matching algorithm with', recommendations.length, 'recommendations');
+          return recommendations.map((rec: any) => rec.user);
+        }
+      } catch (backendError) {
+        console.warn('⚠️ Backend API not available, falling back to client-side algorithm:', backendError);
+      }
+
+      // Fallback to client-side algorithm
+      console.log('📱 Using client-side matching algorithm');
+
       // Get current user
       const currentUser = await this.getUserProfile(currentUserId);
       if (!currentUser) return [];
 
       // Get all users
       const allUsers = await this.getDiscoveryUsers(currentUserId, swipedUserIds);
-      
+
       // Use matching algorithm to find best matches
       const recommendations = matchingAlgorithm.findMatches(currentUser, allUsers, filters, limit);
-      
+
       return recommendations.map(rec => rec.user);
     } catch (error) {
       console.warn('Error getting enhanced discovery users:', error);
@@ -355,7 +381,27 @@ export const matchingService = {
     try {
       console.log('Querying matches for user:', userId);
       
-      // Get all matches and filter in JavaScript to avoid index issues
+      // Try backend API first
+      try {
+        const response = await fetch(`/api/matching/matches/${userId}?t=${Date.now()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+
+        if (response.ok) {
+          const matches = await response.json();
+          console.log('✅ Received matches from backend:', matches.length);
+          return matches;
+        }
+      } catch (apiError) {
+        console.warn('Backend API not available, using Firestore fallback:', apiError);
+      }
+      
+      // Fallback: Get all matches and filter in JavaScript to avoid index issues
       const matchesQuery = collection(db, 'matches');
       const querySnapshot = await getDocs(matchesQuery);
       console.log('Total matches in database:', querySnapshot.docs.length);
@@ -457,6 +503,192 @@ export const matchingService = {
     } catch (error) {
       console.error('Error checking for match:', error);
       throw error;
+    }
+  },
+
+  // Get recommendations from backend API using advanced matching algorithm
+  async getAdvancedRecommendations(
+    userId: string,
+    filters?: {
+      ageRange?: [number, number];
+      maxDistance?: number;
+      verified?: boolean;
+      travelStyles?: string[];
+      destinations?: string[];
+    },
+    limit: number = 20
+  ): Promise<any[]> {
+    try {
+      console.log('🎯 Fetching advanced recommendations from backend API for user:', userId);
+
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      if (filters?.ageRange) params.append('ageRange', JSON.stringify(filters.ageRange));
+      if (filters?.maxDistance) params.append('maxDistance', filters.maxDistance.toString());
+      if (filters?.verified !== undefined) params.append('verified', filters.verified.toString());
+      if (filters?.travelStyles) params.append('travelStyles', JSON.stringify(filters.travelStyles));
+      if (filters?.destinations) params.append('destinations', JSON.stringify(filters.destinations));
+
+      const response = await fetch(`/api/matching/${userId}/recommendations?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const recommendations = await response.json();
+      console.log('✅ Received recommendations from backend:', recommendations.length);
+
+      return recommendations;
+    } catch (error) {
+      console.error('❌ Error fetching advanced recommendations:', error);
+      throw error;
+    }
+  },
+
+  // Record swipe on backend and check for match
+  async recordSwipeWithBackend(swipeData: {
+    type: 'like' | 'pass' | 'superlike';
+    userId: string;
+    swipedUserId: string;
+  }): Promise<{ match: boolean; matchId?: string }> {
+    try {
+      // First record in Firestore (existing behavior)
+      await this.recordSwipe(swipeData);
+
+      // Then send to backend API for match checking
+      const response = await fetch('/api/matching/swipe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(swipeData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error recording swipe with backend:', error);
+      // Fall back to local match checking
+      if (swipeData.type === 'like' || swipeData.type === 'superlike') {
+        const isMatch = await this.checkForMatch(swipeData.userId, swipeData.swipedUserId);
+        return { match: isMatch };
+      }
+      return { match: false };
+    }
+  },
+
+  // Get likes received (people who liked you)
+  async getLikesReceived(userId: string): Promise<any[]> {
+    try {
+      console.log('📥 Fetching likes received for user:', userId);
+
+      const response = await fetch(`/api/matching/likes-received/${userId}?t=${Date.now()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const likesReceived = await response.json();
+      console.log('✅ Received likes from backend:', likesReceived.length);
+
+      return likesReceived;
+    } catch (error) {
+      console.error('❌ Error fetching likes received:', error);
+      // Fallback: query Firestore directly
+      try {
+        console.log('🔄 Using Firestore fallback for likes received');
+        const swipesQuery = query(
+          collection(db, 'swipes'),
+          where('swipedUserId', '==', userId)
+        );
+
+        const snapshot = await getDocs(swipesQuery);
+        
+        // Get all existing matches to exclude them
+        const matchesQuery = query(
+          collection(db, 'matches'),
+          where('users', 'array-contains', userId)
+        );
+        const matchesSnapshot = await getDocs(matchesQuery);
+        
+        const matchedUserIds = new Set();
+        matchesSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          data.users.forEach((uid: string) => {
+            if (uid !== userId) {
+              matchedUserIds.add(uid);
+            }
+          });
+        });
+
+        const likes: any[] = [];
+        const likesMap = new Map();
+
+        for (const doc of snapshot.docs) {
+          const data = doc.data();
+          if ((data.type === 'like' || data.type === 'superlike') && !matchedUserIds.has(data.userId)) {
+            // Fetch the user who liked this person
+            const likerUser = await userService.getUserProfile(data.userId);
+            if (likerUser) {
+              // Deduplicate likes from the same user (keep most recent)
+              if (likesMap.has(data.userId)) {
+                const existingLike = likesMap.get(data.userId);
+                const existingTimestamp = existingLike.timestamp?.toDate ? existingLike.timestamp.toDate() : new Date(existingLike.timestamp);
+                const currentTimestamp = data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
+                
+                if (currentTimestamp > existingTimestamp) {
+                  likesMap.set(data.userId, {
+                    id: doc.id,
+                    user: likerUser,
+                    type: data.type,
+                    timestamp: data.timestamp,
+                    swipedUserId: userId,
+                    userId: data.userId
+                  });
+                }
+              } else {
+                likesMap.set(data.userId, {
+                  id: doc.id,
+                  user: likerUser,
+                  type: data.type,
+                  timestamp: data.timestamp,
+                  swipedUserId: userId,
+                  userId: data.userId
+                });
+              }
+            }
+          }
+        }
+
+        const finalLikes = Array.from(likesMap.values()).sort((a, b) => {
+          const timestampA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+          const timestampB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+          return timestampB.getTime() - timestampA.getTime();
+        });
+
+        console.log('✅ Fallback returned', finalLikes.length, 'likes received (filtered)');
+        return finalLikes;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        return [];
+      }
     }
   }
 };

@@ -2,7 +2,7 @@
  * Quick Response AI Service
  * Uses the ChatManager as the single point of contact for instant responses
  */
-import ChatManagerAgent from './agents/ChatManagerAgent.js';
+import ChatManagerAgent from './ChatManagerAgent.js';
 
 export default class QuickResponseAIService {
   constructor() {

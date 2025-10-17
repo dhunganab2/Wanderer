@@ -104,6 +104,30 @@ Thumbs.db
 .firebase/
 firebase-debug.log
 firestore-debug.log
+serviceAccountKey.json
+**/serviceAccountKey.json
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+**/venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Development data (optional - uncomment to exclude)
+# backend/data/*.json
 
 # Temporary files
 *.tmp

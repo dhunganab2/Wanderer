@@ -3,7 +3,7 @@
  * The manager agent that orchestrates the entire trip planning process
  * and handles user communication
  */
-import BaseAgent from '../utils/BaseAgent.js';
+import BaseAgent from './BaseAgent.js';
 
 export default class ChiefTravelPlannerAgent extends BaseAgent {
   constructor() {

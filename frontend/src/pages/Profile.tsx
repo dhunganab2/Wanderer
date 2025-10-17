@@ -33,7 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useParams, useNavigate } from 'react-router-dom';
-import { userService } from '@/services/firebaseService';
+import { userService, matchingService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { sampleUsers, travelStyleOptions } from '@/data/sampleUsers';
@@ -55,11 +55,12 @@ export default function Profile() {
   const [newInterest, setNewInterest] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const [isMatched, setIsMatched] = useState(false);
 
   // Use viewed user (route param) or fallback to current auth user
   const [viewedUser, setViewedUser] = useState<UserType | null>(null);
   const currentUser = viewedUser || user || sampleUsers[0];
-  
+
   // Check if viewing own profile
   const isOwnProfile = !userId || (authUser && userId === authUser.uid) || (!userId && user);
   const isViewingOthersProfile = userId && authUser && userId !== authUser.uid;
@@ -82,6 +83,29 @@ export default function Profile() {
     };
     load();
   }, [userId, user]);
+
+  // Check if current user is matched with viewed user
+  useEffect(() => {
+    const checkMatch = async () => {
+      if (!authUser || !userId || isOwnProfile) {
+        setIsMatched(false);
+        return;
+      }
+
+      try {
+        const matches = await matchingService.getUserMatches(authUser.uid);
+        const isUserMatched = matches.some(match =>
+          match.users.includes(userId) && match.status === 'accepted'
+        );
+        setIsMatched(isUserMatched);
+      } catch (error) {
+        console.error('Error checking match status:', error);
+        setIsMatched(false);
+      }
+    };
+
+    checkMatch();
+  }, [authUser, userId, isOwnProfile]);
 
   // Load user images from database
   useEffect(() => {
@@ -315,8 +339,18 @@ export default function Profile() {
   };
 
   const handleCoverClick = () => {
-    if (isEditing && isOwnProfile) {
-      coverInputRef.current?.click();
+    if (isOwnProfile) {
+      // If not in edit mode, enter edit mode first
+      if (!isEditing) {
+        setIsEditing(true);
+        setEditForm(currentUser);
+        // Small delay to ensure edit mode is activated
+        setTimeout(() => {
+          coverInputRef.current?.click();
+        }, 100);
+      } else {
+        coverInputRef.current?.click();
+      }
     }
   };
 
@@ -371,20 +405,31 @@ export default function Profile() {
                 className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-sunset flex items-center justify-center relative overflow-hidden">
+              <div 
+                className={cn(
+                  "w-full h-full bg-gradient-sunset flex items-center justify-center relative overflow-hidden",
+                  isOwnProfile && "cursor-pointer hover:opacity-90 transition-opacity duration-300"
+                )}
+                onClick={isOwnProfile ? handleCoverClick : undefined}
+                title={isOwnProfile ? "Click to upload cover photo" : undefined}
+              >
                 <div className="absolute inset-0 bg-gradient-to-br from-black/20 to-transparent"></div>
                 <div className="text-center text-white z-10">
                   <ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-70 animate-float" />
-                  <p className="text-lg font-semibold opacity-90">Add Cover Photo</p>
-                  <p className="text-sm opacity-70 mt-1">Show off your travel adventures</p>
+                  <p className="text-lg font-semibold opacity-90">
+                    {isOwnProfile ? "Add Cover Photo" : "No Cover Photo"}
+                  </p>
+                  <p className="text-sm opacity-70 mt-1">
+                    {isOwnProfile ? "Click to upload your travel adventures" : ""}
+                  </p>
                 </div>
                 <div className="absolute top-4 right-4 w-12 h-12 rounded-full blur-lg animate-bounce-gentle" style={{backgroundColor: 'rgba(255, 255, 255, 0.2)'}}></div>
                 <div className="absolute bottom-6 left-6 w-8 h-8 rounded-full blur-md animate-float" style={{animationDelay: '1s', backgroundColor: 'rgba(255, 255, 255, 0.15)'}}></div>
                       </div>
                     )}
 
-            {/* Cover Upload Overlay */}
-            {isEditing && isOwnProfile && (
+            {/* Cover Upload Overlay - Show for existing cover photos */}
+            {currentUser.coverImage && isOwnProfile && (
               <div
                 className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-all duration-300 cursor-pointer backdrop-blur-sm"
                 style={{backgroundColor: 'rgba(0, 0, 0, 0.5)'}}
@@ -443,7 +488,7 @@ export default function Profile() {
 
         {/* Profile Actions */}
         <div className="absolute top-6 right-6 flex gap-3 animate-fade-in" style={{animationDelay: '0.4s'}}>
-          {isViewingOthersProfile && (
+          {isViewingOthersProfile && isMatched && (
             <Button
               onClick={handleMessageUser}
               variant="hero"
@@ -566,7 +611,7 @@ export default function Profile() {
                   <Edit3 className="w-5 h-5 mr-2" />
                   Edit Profile
                 </Button>
-              ) : (
+              ) : isMatched ? (
                 <Button
                   onClick={handleMessageUser}
                   variant="hero"
@@ -576,6 +621,12 @@ export default function Profile() {
                   <MessageCircle className="w-5 h-5 mr-2" />
                   Message {currentUser.name}
                 </Button>
+              ) : (
+                <div className="text-center py-8 glass-card p-6 rounded-lg">
+                  <p className="text-muted-foreground">
+                    You need to match with {currentUser.name} to send messages
+                  </p>
+                </div>
                       )}
                     </div>
                   </div>

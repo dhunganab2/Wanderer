@@ -3,7 +3,7 @@
  * The single point of contact for users - handles ALL user interaction
  * and coordinates other agents behind the scenes
  */
-import BaseAgent from '../utils/BaseAgent.js';
+import BaseAgent from './BaseAgent.js';
 import DataScoutAgent from './DataScoutAgent.js';
 
 export default class ChatManagerAgent extends BaseAgent {

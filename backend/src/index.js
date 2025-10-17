@@ -13,9 +13,7 @@ import userRoutes from './routes/users.js';
 import matchingRoutes from './routes/matching.js';
 import bucketListRoutes from './routes/bucketlist.js';
 import messagingRoutes from './routes/messaging.js';
-import aiRoutes from './routes/ai.js';
-import aiV2Routes from './routes/aiV2.js';
-import aiV3Routes from './routes/aiV3.js';
+import aiRoutes from './routes/aiV3.js';
 
 // Import socket services
 import { socketAuth } from './middleware/socketAuth.js';
@@ -31,7 +29,9 @@ const io = new Server(server, {
     origin: [
       process.env.FRONTEND_URL || "http://localhost:8080",
       "http://localhost:8080",
-      "http://localhost:8081"
+      "http://localhost:8081",
+      "http://localhost:8082",
+      "http://localhost:8083"
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -56,7 +56,9 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || "http://localhost:8080",
     "http://localhost:8080",
-    "http://localhost:8081"
+    "http://localhost:8081",
+    "http://localhost:8082",
+    "http://localhost:8083"
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-conversation-id', 'x-user-id'],
@@ -78,9 +80,7 @@ app.get('/', (req, res) => {
       matching: '/api/matching',
       bucketlist: '/api/bucketlist',
       messaging: '/api/messaging',
-      ai: '/api/ai',
-      'ai-v2': '/api/ai/v2',
-      'ai-v3': '/api/ai/v3'
+      ai: '/api/ai'
     },
     timestamp: new Date().toISOString()
   });
@@ -105,9 +105,7 @@ app.get('/api', (req, res) => {
       matching: '/api/matching',
       bucketlist: '/api/bucketlist',
       messaging: '/api/messaging',
-      ai: '/api/ai',
-      'ai-v2': '/api/ai/v2',
-      'ai-v3': '/api/ai/v3'
+      ai: '/api/ai'
     }
   });
 });
@@ -120,9 +118,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/matching', matchingRoutes);
 app.use('/api/bucketlist', bucketListRoutes);
 app.use('/api/messaging', messagingRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/ai/v2', aiV2Routes);
-app.use('/api/ai/v3', aiV3Routes);
+app.use('/api/ai/v3', aiRoutes); // Mount at v3 for frontend compatibility
+app.use('/api/ai', aiRoutes);    // Also mount at root for flexibility
 
 // Error handling middleware
 app.use((err, req, res, next) => {

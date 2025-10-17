@@ -36,14 +36,14 @@ export const TravelCard: React.FC<TravelCardProps> = ({
     <div 
       className={cn(
         "relative overflow-hidden rounded-3xl shadow-elevation hover:shadow-glow transition-all duration-700 cursor-pointer group",
-        variant === 'stack' ? "w-80 h-[520px]" : "w-full max-w-sm h-[420px]",
+        variant === 'stack' ? "w-72 sm:w-80 h-[450px] sm:h-[480px] md:h-[520px]" : "w-full max-w-sm h-[380px] sm:h-[400px] md:h-[420px]",
         "glass-card-elevated backdrop-blur-2xl border border-white/20 hover:border-sunrise-coral/30",
         "hover:scale-[1.02] hover:-translate-y-2",
         className
       )}
     >
       {/* Enhanced Cover Image */}
-      <div className="relative h-64 overflow-hidden">
+      <div className="relative h-48 sm:h-56 md:h-64 overflow-hidden">
         <img 
           src={user.coverImage || user.avatar || '/placeholder.svg'} 
           alt={`${user.name}'s travel photo`}
@@ -124,14 +124,14 @@ export const TravelCard: React.FC<TravelCardProps> = ({
       </div>
 
       {/* Enhanced Content */}
-      <div className="p-8 space-y-6">
+      <div className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 md:space-y-6">
         {/* Name and Age */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h3 className="text-2xl font-bold text-foreground font-display group-hover:text-gradient-primary transition-all duration-300">
+            <h3 className="text-xl sm:text-2xl font-bold text-foreground font-display group-hover:text-gradient-primary transition-all duration-300">
               {user.name}
             </h3>
-            <span className="text-lg text-muted-foreground font-medium">
+            <span className="text-base sm:text-lg text-muted-foreground font-medium">
               {user.age}
             </span>
           </div>
@@ -153,23 +153,23 @@ export const TravelCard: React.FC<TravelCardProps> = ({
         </div>
 
         {/* Bio */}
-        <p className="text-sm text-foreground leading-relaxed line-clamp-3 group-hover:text-foreground/90 transition-colors duration-300">
+        <p className="text-xs sm:text-sm text-foreground leading-relaxed line-clamp-2 sm:line-clamp-3 group-hover:text-foreground/90 transition-colors duration-300">
           {user.bio}
         </p>
 
         {/* Enhanced Travel Style Tags */}
-        <div className="flex flex-wrap gap-2">
-          {user.travelStyle.slice(0, 3).map((style, index) => (
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          {user.travelStyle.slice(0, 2).map((style, index) => (
             <span
               key={index}
-              className="px-4 py-2 bg-gradient-sunrise/10 text-sunrise-coral text-xs font-semibold rounded-full border border-sunrise-coral/20 hover:bg-gradient-sunrise/20 hover:border-sunrise-coral/40 transition-all duration-300 cursor-default"
+              className="px-2 sm:px-3 py-1 sm:py-1.5 bg-gradient-sunrise/10 text-sunrise-coral text-xs font-semibold rounded-full border border-sunrise-coral/20 hover:bg-gradient-sunrise/20 hover:border-sunrise-coral/40 transition-all duration-300 cursor-default"
             >
               {style}
             </span>
           ))}
-          {user.travelStyle.length > 3 && (
-            <span className="px-4 py-2 bg-muted/50 text-muted-foreground text-xs font-semibold rounded-full border border-muted-foreground/20">
-              +{user.travelStyle.length - 3} more
+          {user.travelStyle.length > 2 && (
+            <span className="px-2 sm:px-3 py-1 sm:py-1.5 bg-muted/50 text-muted-foreground text-xs font-semibold rounded-full border border-muted-foreground/20">
+              +{user.travelStyle.length - 2} more
             </span>
           )}
         </div>

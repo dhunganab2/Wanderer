@@ -541,32 +541,6 @@ const AITravelPlanner: React.FC = () => {
           </Button>
         </div>
 
-        {/* Chat History */}
-        {sidebarExpanded && (
-          <div className="flex-1 overflow-y-auto px-4 min-h-0">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-              Recent Chats
-            </div>
-            <div className="space-y-2">
-              {chatHistory.map((chat) => (
-                <button
-                  key={chat.id}
-                  className="w-full text-left p-3 rounded-xl hover:bg-muted/50 transition-colors duration-200 group"
-                >
-                  <div className="text-sm font-medium text-foreground group-hover:text-sunrise-coral transition-colors">
-                    {chat.title}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1 truncate">
-                    {chat.preview}
-                  </div>
-                  <div className="text-xs text-muted-foreground/60 mt-1">
-                    {chat.timestamp}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* User Profile */}
         <div className="p-4 border-t border-border/50 shrink-0">
