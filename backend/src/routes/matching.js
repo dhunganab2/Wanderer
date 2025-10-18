@@ -13,6 +13,11 @@ router.get('/likes-received/:userId', matchingController.getLikesReceived);
 router.get('/recommendations/:userId', matchingController.getRecommendations);
 router.get('/compatibility/:userId1/:userId2', matchingController.getCompatibility);
 
+// Discovery modes
+router.get('/smart-matches/:userId', matchingController.getSmartMatches);
+router.get('/nearby-matches/:userId', matchingController.getNearbyMatches);
+router.get('/explore-matches/:userId', matchingController.getExploreMatches);
+
 // Admin/maintenance routes
 router.post('/cleanup-duplicates', matchingController.cleanupDuplicateSwipes);
 

@@ -135,5 +135,101 @@ export const matchingController = {
       console.error('Error cleaning up duplicate swipes:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
+  },
+
+  async getSmartMatches(req, res) {
+    try {
+      const { userId } = req.params;
+      const { limit, ageRange, maxDistance, verified, travelStyles, destinations } = req.query;
+
+      console.log(`🎯 Getting Smart Matches for user: ${userId}`);
+
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required' });
+      }
+
+      // Build filters object
+      const filters = {};
+      if (ageRange) filters.ageRange = JSON.parse(ageRange);
+      if (maxDistance) filters.maxDistance = parseInt(maxDistance);
+      if (verified) filters.verified = verified === 'true';
+      if (travelStyles) filters.travelStyles = JSON.parse(travelStyles);
+      if (destinations) filters.destinations = JSON.parse(destinations);
+
+      const matches = await matchingService.getSmartMatches(
+        userId,
+        filters,
+        limit ? parseInt(limit) : 20
+      );
+
+      res.json(matches);
+    } catch (error) {
+      console.error('Error getting smart matches:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  async getNearbyMatches(req, res) {
+    try {
+      const { userId } = req.params;
+      const { limit, ageRange, maxDistance, verified, travelStyles, destinations } = req.query;
+
+      console.log(`📍 Getting Nearby Matches for user: ${userId}`);
+
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required' });
+      }
+
+      // Build filters object
+      const filters = {};
+      if (ageRange) filters.ageRange = JSON.parse(ageRange);
+      if (maxDistance) filters.maxDistance = parseInt(maxDistance);
+      if (verified) filters.verified = verified === 'true';
+      if (travelStyles) filters.travelStyles = JSON.parse(travelStyles);
+      if (destinations) filters.destinations = JSON.parse(destinations);
+
+      const matches = await matchingService.getNearbyMatches(
+        userId,
+        filters,
+        limit ? parseInt(limit) : 20
+      );
+
+      res.json(matches);
+    } catch (error) {
+      console.error('Error getting nearby matches:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  async getExploreMatches(req, res) {
+    try {
+      const { userId } = req.params;
+      const { limit, ageRange, maxDistance, verified, travelStyles, destinations } = req.query;
+
+      console.log(`🎲 Getting Explore Matches for user: ${userId}`);
+
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required' });
+      }
+
+      // Build filters object
+      const filters = {};
+      if (ageRange) filters.ageRange = JSON.parse(ageRange);
+      if (maxDistance) filters.maxDistance = parseInt(maxDistance);
+      if (verified) filters.verified = verified === 'true';
+      if (travelStyles) filters.travelStyles = JSON.parse(travelStyles);
+      if (destinations) filters.destinations = JSON.parse(destinations);
+
+      const matches = await matchingService.getExploreMatches(
+        userId,
+        filters,
+        limit ? parseInt(limit) : 20
+      );
+
+      res.json(matches);
+    } catch (error) {
+      console.error('Error getting explore matches:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 };

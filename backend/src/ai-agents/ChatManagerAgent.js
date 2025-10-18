@@ -1138,17 +1138,17 @@ Extract the following information if present in the message:
 - duration: Number of days (convert "5-day", "five days", "a week", "4 days" to "X days" format, e.g., "5 days")
 - travelers: Array with one of ["solo", "duo", "group"]. If user says "solo", "alone", "by myself" → ["solo"]. If "with friend", "duo" → ["duo"]. If "group", "friends" → ["group"]. If not mentioned → []
 - departureCity: City they're flying from (e.g., "Cincinnati", "New York"). Look for phrases like "from Cincinnati", "flying from", "leaving from"
-- budgetPreference: One of ["Budget", "Mid-range", "Luxury"]. Look for:
-  * Dollar amounts under $1000 total budget OR "budget", "cheap", "affordable", "budget-friendly" → "Budget"
-  * Dollar amounts $1000-$3000 total budget OR "mid-range", "moderate", "average" → "Mid-range"  
-  * Dollar amounts over $3000 total budget OR "luxury", "high-end", "premium", "luxurious" → "Luxury"
-  * If user mentions "$500" or any specific amount, categorize it based on the ranges above
-  * IGNORE the dollar amount itself and ONLY return the category (Budget/Mid-range/Luxury)
+- budget: The ACTUAL dollar amount if mentioned (e.g., "$5000", "5k", "$2,500"). Extract the numeric value only (e.g., 5000, 2500). Look for patterns like "$5000", "5k usd", "$2,500", "five thousand dollars"
+- budgetPreference: One of ["Budget", "Mid-range", "Luxury"]. Determine based on:
+  * If budget amount given: Under $1500 → "Budget", $1500-$4000 → "Mid-range", Over $4000 → "Luxury"
+  * If no amount: Keywords "budget", "cheap", "affordable" → "Budget", "mid-range", "moderate" → "Mid-range", "luxury", "high-end" → "Luxury"
+  * If neither budget nor keywords mentioned → null
 
-IMPORTANT: 
+IMPORTANT:
 - If user says "just create a trip" or "any island" or similar, infer they want "solo" travel unless they mention companions
-- If user provides a specific dollar amount like "$500", convert it to the appropriate category ("Budget") - DO NOT store the number
+- ALWAYS extract the budget dollar amount if provided (e.g., "$5000" → 5000, "5k" → 5000)
 - Convert all duration formats to "X days" (e.g., "4 days", "5 days")
+- Extract both budget (number) AND budgetPreference (category)
 
 Return ONLY this JSON format:
 {
@@ -1156,6 +1156,7 @@ Return ONLY this JSON format:
   "duration": "X days or null",
   "travelers": ["solo"] or ["duo"] or ["group"] or [],
   "departureCity": "city name or null",
+  "budget": number or null,
   "budgetPreference": "Budget or Mid-range or Luxury or null"
 }`;
 
@@ -1478,12 +1479,35 @@ Ready to make this happen? I can help you with next steps for booking! 🚀`;
    */
   async aiCompileFinalPlan(tripDetails, results, userContext) {
     try {
+      // Determine the budget to use for planning
+      const totalBudget = tripDetails.budget || null;
+      const budgetCategory = tripDetails.budgetPreference || 'Mid-range';
+      const budgetInfo = totalBudget
+        ? `Total budget: $${totalBudget} USD (${budgetCategory} tier)`
+        : `Budget tier: ${budgetCategory} (no specific amount provided)`;
+
       const prompt = `You are the ChiefTravelPlanner agent. Compile all the specialist agent results into a comprehensive, engaging trip plan.
 
 TRIP DETAILS:
 - Destination: ${tripDetails.destination}
 - Duration: ${tripDetails.duration}
 - Travelers: ${tripDetails.travelers.join(', ')}
+- ${budgetInfo}
+
+BUDGET CONSTRAINTS:
+${totalBudget ? `
+CRITICAL: The user has specified a TOTAL BUDGET of $${totalBudget} USD for this entire trip.
+You MUST ensure all recommendations and costs fit within this budget. Break it down as:
+- Flights: Allocate 30-40% of total budget ($${Math.round(totalBudget * 0.35)})
+- Accommodation: Allocate 25-35% of total budget ($${Math.round(totalBudget * 0.30)})
+- Food: Allocate 15-20% of total budget ($${Math.round(totalBudget * 0.17)})
+- Activities/Attractions: Allocate 10-15% of total budget ($${Math.round(totalBudget * 0.12)})
+- Transportation (local): Allocate 5-8% of total budget ($${Math.round(totalBudget * 0.06)})
+
+Calculate specific daily budgets and ensure the total does not exceed $${totalBudget}.
+` : `
+Use ${budgetCategory} tier pricing for all recommendations.
+`}
 
 SPECIALIST RESULTS:
 Profile Analysis: ${JSON.stringify(results.profile, null, 2)}
@@ -1499,14 +1523,22 @@ Create a comprehensive trip plan in this JSON format. Return ONLY valid JSON wit
     "duration": "${tripDetails.duration}",
     "companions": "description of travel companions",
     "travelStyle": ["travel style"],
-    "budget": "total budget range"
+    "budget": "${totalBudget ? `$${totalBudget} USD total` : budgetCategory + ' tier'}"
   },
   "itinerary": "formatted daily itinerary",
   "recommendations": {
-    "accommodation": ["accommodation recommendations"],
-    "restaurants": ["restaurant recommendations"],
-    "transportation": "transportation recommendations",
-    "budgetBreakdown": "detailed budget breakdown",
+    "accommodation": ["accommodation recommendations with specific price ranges that fit the budget"],
+    "restaurants": ["restaurant recommendations with price ranges"],
+    "transportation": "transportation recommendations with costs",
+    "budgetBreakdown": {
+      "total": "${totalBudget || 'TBD'}",
+      "flights": "flight cost estimate",
+      "accommodation": "total accommodation cost",
+      "food": "total food cost",
+      "activities": "total activities cost",
+      "transportation": "local transport cost",
+      "contingency": "emergency/contingency fund"
+    },
     "travelTips": ["essential travel tips"],
     "packingList": ["packing recommendations"],
     "weather": "weather information and advice"
@@ -1517,6 +1549,7 @@ Create a comprehensive trip plan in this JSON format. Return ONLY valid JSON wit
   "message": "engaging summary message for the user"
 }
 
+${totalBudget ? `IMPORTANT: Ensure ALL cost estimates in the budgetBreakdown add up to approximately $${totalBudget} USD. Be specific with numbers.` : ''}
 Make it engaging, practical, and personalized. The message should be exciting and make the user feel confident about their upcoming trip.`;
 
       const response = await this.callGemini(prompt);
@@ -1584,13 +1617,18 @@ Make it engaging, practical, and personalized. The message should be exciting an
     } catch (error) {
       console.error('AI Final Plan Compilation error:', error);
       // Fallback compilation
+      const totalBudget = tripDetails.budget || null;
+      const budgetDisplay = totalBudget
+        ? `$${totalBudget} USD total`
+        : (results.profile.recommendations?.budgetRange || '$100-200/day');
+
       return {
         tripInfo: {
           destination: tripDetails.destination,
           duration: tripDetails.duration,
           companions: tripDetails.travelers[0] === 'solo' ? 'Solo travel' : 'Group travel',
           travelStyle: results.profile.travelStyle || ['culture'],
-          budget: results.profile.recommendations?.budgetRange || '$100-200/day'
+          budget: budgetDisplay
         },
         itinerary: results.itinerary.dailyPlans || [],
         recommendations: {
