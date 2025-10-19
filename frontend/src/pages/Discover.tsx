@@ -8,6 +8,7 @@ import { FilterPanel } from '@/components/FilterPanel';
 import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useMatchingData } from '@/hooks/useMatchingData';
 import { userService, matchingService } from '@/services/firebaseService';
 import { matchingAlgorithm } from '@/services/matchingAlgorithm';
 import { getCurrentLocation } from '@/services/locationService';
@@ -31,9 +32,29 @@ export default function Discover() {
   const [useLocation, setUseLocation] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [discoveryMode, setDiscoveryMode] = useState<'algorithm' | 'location' | 'random'>('algorithm');
-  
+
+  // Track users that have been swiped in this session (persists across useEffect reruns)
+  const [localSwipedUsers, setLocalSwipedUsers] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem('localSwipedUsers');
+    console.log('🔧 INITIALIZING localSwipedUsers from localStorage:', saved);
+    const set = saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
+    console.log('🔧 Initialized localSwipedUsers Set:', Array.from(set));
+    return set;
+  });
+
   const { filters, swipeUser, swipeHistory, setUsers, resetSwipeHistory, addMatch } = useAppStore();
   const { user: currentUser, authUser } = useUserProfile();
+
+  // Save localSwipedUsers to localStorage whenever it changes
+  useEffect(() => {
+    const arrayToSave = Array.from(localSwipedUsers);
+    console.log('💾 SAVING localSwipedUsers to localStorage:', arrayToSave);
+    localStorage.setItem('localSwipedUsers', JSON.stringify(arrayToSave));
+    console.log('💾 Saved successfully. Verifying:', localStorage.getItem('localSwipedUsers'));
+  }, [localSwipedUsers]);
+  
+  // Use cached matching data hook
+  const { matches: cachedMatches } = useMatchingData(authUser?.uid || null);
 
   // Load user's current location
   useEffect(() => {
@@ -53,29 +74,49 @@ export default function Discover() {
   useEffect(() => {
     const loadDiscoveryUsers = async () => {
       if (!authUser) return;
-      
+
       try {
         setLoadingUsers(true);
+
+        console.log('🔄 ===== USEEFFECT TRIGGERED =====');
+        console.log('🔄 localSwipedUsers at start:', Array.from(localSwipedUsers));
+        console.log('🔄 localStorage localSwipedUsers:', localStorage.getItem('localSwipedUsers'));
 
         // Load swipes and matches from database
         // We should exclude:
         // 1. Users we've PASSED on (swiped left)
         // 2. Users we're already MATCHED with
         // We should NOT exclude users we've LIKED (they need to see us to swipe back)
+
+        // Fetch both in parallel
         const [dbSwipes, dbMatches] = await Promise.all([
           matchingService.getUserSwipes(authUser.uid),
           matchingService.getUserMatches(authUser.uid)
         ]);
 
+        console.log('🎯 DEBUG dbMatches from DB:', dbMatches);
+        console.log('🎯 DEBUG dbMatches length:', dbMatches?.length);
+
         // Get user IDs to exclude from discovery
         const passedUserIds = dbSwipes
           .filter(swipe => swipe.type === 'pass')
-          .map(swipe => swipe.swipedUserId);
+          .map(swipe => (swipe as any).swipedUserId);
 
+        // Get matched user IDs directly from database (don't rely on cache)
         const matchedUserIds = dbMatches
-          .filter(match => match.status === 'accepted')
-          .flatMap(match => match.users)
-          .filter(id => id !== authUser.uid);
+          .filter(match => {
+            console.log('🎯 Checking match:', match.id, 'status:', match.status, 'users:', match.users);
+            return match.status === 'accepted';
+          })
+          .flatMap(match => {
+            console.log('🎯 Extracting users from match:', match.users);
+            return match.users;
+          })
+          .filter(id => {
+            const isNotCurrentUser = id !== authUser.uid;
+            console.log('🎯 User ID:', id, 'isNotCurrentUser:', isNotCurrentUser);
+            return isNotCurrentUser;
+          });
 
         // Combine passed and matched users to exclude
         const excludedUserIds = [...new Set([...passedUserIds, ...matchedUserIds])];
@@ -85,9 +126,10 @@ export default function Discover() {
         console.log('🔍 Loading discovery users...');
         console.log('Auth user ID:', authUser.uid);
         console.log('Total swipes from DB:', dbSwipes.length);
-        console.log('Passed users to exclude:', passedUserIds.length, passedUserIds);
+        console.log('Passed users to exclude (DB):', passedUserIds.length, passedUserIds);
         console.log('Matched users to exclude:', matchedUserIds.length, matchedUserIds);
-        console.log('Total excluded user IDs:', excludedUserIds.length, excludedUserIds);
+        console.log('Total excluded user IDs (DB):', excludedUserIds.length, excludedUserIds);
+        console.log('Local swiped users (session):', localSwipedUsers.size, Array.from(localSwipedUsers));
         console.log('Discovery mode:', discoveryMode);
         
         try {
@@ -137,14 +179,31 @@ export default function Discover() {
         }
         
         // Keep all available users for better discovery experience
-        console.log('📊 Users before any limits:', users.length);
-        
-        console.log('📊 Final user count:', users.length);
+        console.log('📊 Users loaded from API/Firebase:', users.length);
+        console.log('📊 User IDs loaded:', users.map(u => u.id));
+
+        // Filter out locally swiped users (from this session)
+        console.log('🧹 Filtering localSwipedUsers...');
+        console.log('🧹 localSwipedUsers before filter:', Array.from(localSwipedUsers));
+        const filteredFromLocal = users.filter(u => {
+          const isSwipedLocally = localSwipedUsers.has(u.id);
+          if (isSwipedLocally) {
+            console.log(`❌ Filtering out locally swiped user: ${u.id} (${u.name})`);
+          }
+          return !isSwipedLocally;
+        });
+        console.log(`🔍 Filtered ${users.length - filteredFromLocal.length} locally swiped users from list`);
+        console.log('📊 Final user count after local filter:', filteredFromLocal.length);
+        console.log('📊 Final user IDs:', filteredFromLocal.map(u => u.id));
 
         // Always store users in global state for Matches page
-        setUsers(users);
-        setDiscoveryUsers(users);
-        
+        setUsers(filteredFromLocal);
+        setDiscoveryUsers(filteredFromLocal);
+
+        // Reset to start of the new filtered list
+        setCurrentCardIndex(0);
+        console.log('✅ Updated discoveryUsers state with', filteredFromLocal.length, 'users');
+
         // Calculate match recommendations for each user
         if (currentUser && users.length > 0) {
           const recommendations = matchingAlgorithm.findMatches(currentUser, users, filters, users.length);
@@ -162,7 +221,7 @@ export default function Discover() {
             matchingService.getUserMatches(authUser.uid)
           ]);
 
-          const passedIds = dbSwipes.filter(s => s.type === 'pass').map(s => s.swipedUserId);
+          const passedIds = dbSwipes.filter(s => s.type === 'pass').map(s => (s as any).swipedUserId);
           const matchedIds = dbMatches
             .filter(m => m.status === 'accepted')
             .flatMap(m => m.users)
@@ -231,11 +290,30 @@ export default function Discover() {
     }
 
     try {
-      console.log('🔥 Liked user:', userId, 'by user:', authUser.uid);
+      console.log('❤️ ===== HANDLELIKE STARTED =====');
+      console.log('❤️ Liked user:', userId, 'by user:', authUser.uid);
+      console.log('❤️ localSwipedUsers BEFORE adding:', Array.from(localSwipedUsers));
 
       // Record swipe in local store
       swipeUser({ type: 'like', userId, timestamp: new Date().toISOString() });
       console.log('✅ Swipe recorded in local store');
+
+      // Add to local swiped users set (persists across useEffect reruns)
+      setLocalSwipedUsers(prev => {
+        const newSet = new Set(prev).add(userId);
+        console.log('❤️ localSwipedUsers AFTER adding:', Array.from(newSet));
+        console.log('❤️ Will save to localStorage:', JSON.stringify(Array.from(newSet)));
+        return newSet;
+      });
+
+      // Immediately remove from discovery list to prevent re-appearance
+      setDiscoveryUsers(prev => {
+        console.log('❤️ discoveryUsers BEFORE removal:', prev.length, prev.map(u => u.id));
+        const filtered = prev.filter(u => u.id !== userId);
+        console.log('❤️ discoveryUsers AFTER removal:', filtered.length, filtered.map(u => u.id));
+        console.log(`✅ Removed liked user ${userId} from discovery list. Remaining: ${filtered.length}`);
+        return filtered;
+      });
 
       // Record swipe via backend API (handles match detection automatically)
       const result = await matchingService.recordSwipeWithBackend({
@@ -297,11 +375,30 @@ export default function Discover() {
     }
 
     try {
+      console.log('❌ ===== HANDLEPASS STARTED =====');
       console.log('❌ Passed user:', userId, 'by user:', authUser.uid);
+      console.log('❌ localSwipedUsers BEFORE adding:', Array.from(localSwipedUsers));
 
       // Record swipe in local store
       swipeUser({ type: 'pass', userId, timestamp: new Date().toISOString() });
       console.log('✅ Pass recorded in local store');
+
+      // Add to local swiped users set (persists across useEffect reruns)
+      setLocalSwipedUsers(prev => {
+        const newSet = new Set(prev).add(userId);
+        console.log('❌ localSwipedUsers AFTER adding:', Array.from(newSet));
+        console.log('❌ Will save to localStorage:', JSON.stringify(Array.from(newSet)));
+        return newSet;
+      });
+
+      // Immediately remove from discovery list to prevent re-appearance
+      setDiscoveryUsers(prev => {
+        console.log('❌ discoveryUsers BEFORE removal:', prev.length, prev.map(u => u.id));
+        const filtered = prev.filter(u => u.id !== userId);
+        console.log('❌ discoveryUsers AFTER removal:', filtered.length, filtered.map(u => u.id));
+        console.log(`✅ Removed passed user ${userId} from discovery list. Remaining: ${filtered.length}`);
+        return filtered;
+      });
 
       // Record swipe via backend API
       await matchingService.recordSwipeWithBackend({
@@ -333,6 +430,16 @@ export default function Discover() {
       // Record swipe in local store
       swipeUser({ type: 'superlike', userId, timestamp: new Date().toISOString() });
       console.log('✅ Super like recorded in local store');
+
+      // Add to local swiped users set (persists across useEffect reruns)
+      setLocalSwipedUsers(prev => new Set(prev).add(userId));
+
+      // Immediately remove from discovery list to prevent re-appearance
+      setDiscoveryUsers(prev => {
+        const filtered = prev.filter(u => u.id !== userId);
+        console.log(`✅ Removed super-liked user ${userId} from discovery list. Remaining: ${filtered.length}`);
+        return filtered;
+      });
 
       // Record swipe via backend API (handles match detection automatically)
       const result = await matchingService.recordSwipeWithBackend({
@@ -406,7 +513,14 @@ export default function Discover() {
 
   const handleReset = () => {
     setCurrentCardIndex(0);
+    localStorage.setItem('currentCardIndex', '0');
+
+    // Clear local swiped users
+    setLocalSwipedUsers(new Set());
+    localStorage.removeItem('localSwipedUsers');
+
     resetSwipeHistory();
+
     // Trigger useEffect to reload users after resetting swipe history
     setLoadingUsers(true);
   };
@@ -437,21 +551,29 @@ export default function Discover() {
   const getCurrentCardCompatibility = () => {
     if (!currentUser || !currentCard) return null;
     const recommendation = matchRecommendations.find(rec => rec.user.id === currentCard.id);
-    return recommendation?.score || null;
+    
+    // If we have a recommendation, use it; otherwise calculate on-the-fly
+    if (recommendation) {
+      return recommendation.score;
+    } else {
+      // Calculate compatibility on-the-fly
+      const compatibility = matchingAlgorithm.calculateCompatibility(currentUser, currentCard);
+      return compatibility;
+    }
   };
 
   const currentCompatibility = getCurrentCardCompatibility();
 
   return (
-    <div className="h-full bg-background overflow-y-auto">
+    <div className="h-screen bg-background overflow-hidden">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
       {/* Main Content */}
-      <div className="pt-16 sm:pt-20 pb-20 sm:pb-24 px-4 sm:px-6">
+      <div className="pt-20 pb-6">
         <div className="max-w-6xl mx-auto">
           {/* Enhanced Header */}
-          <div className="mb-8 sm:mb-12 md:mb-16 animate-fade-up">
+          <div className="mb-1 animate-fade-up px-4">
             {getActiveFilterCount() > 0 && (
               <div className="mb-6">
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card-elevated backdrop-blur-xl border border-sunrise-coral/30">
@@ -466,69 +588,64 @@ export default function Discover() {
           </div>
 
           {/* Enhanced Discovery Mode Selector with View Controls */}
-          <div className="mb-6 sm:mb-8 md:mb-12 lg:mb-16 animate-slide-up" style={{animationDelay: '0.4s'}}>
-            <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
+          <div className="mb-2 animate-slide-up px-4" style={{animationDelay: '0.4s'}}>
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
               {/* Discovery Mode Buttons */}
-              <div className="flex gap-2 sm:gap-4 p-2 sm:p-4 glass-card-elevated rounded-2xl sm:rounded-3xl backdrop-blur-2xl border border-white/20 shadow-elevation overflow-x-auto">
+              <div className="flex gap-2 p-2 glass-card-elevated rounded-2xl backdrop-blur-2xl border border-white/20 shadow-elevation overflow-x-auto">
                 <Button
                   variant={discoveryMode === 'algorithm' ? 'hero' : 'ghost'}
                   size="sm"
                   onClick={() => setDiscoveryMode('algorithm')}
-                  className="flex items-center gap-2 sm:gap-4 px-3 sm:px-6 lg:px-8 transition-all duration-500 group whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 transition-all duration-500 group whitespace-nowrap"
                 >
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-xl sm:rounded-2xl bg-gradient-sunrise flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Zap className="w-3 h-3 sm:w-4 sm:h-4 lg:w-5 lg:h-5 text-white group-hover:animate-pulse-soft" />
+                  <div className="w-7 h-7 rounded-xl bg-gradient-sunrise flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <Zap className="w-4 h-4 text-white group-hover:animate-pulse-soft" />
                   </div>
-                  <span className="font-bold text-sm sm:text-base lg:text-lg">
-                    <span className="hidden sm:inline">Smart Match</span>
-                    <span className="sm:hidden">Smart</span>
-                  </span>
+                  <span className="font-bold text-sm">Smart Match</span>
                 </Button>
                 <Button
                   variant={discoveryMode === 'location' ? 'elegant' : 'ghost'}
                   size="sm"
                   onClick={() => setDiscoveryMode('location')}
-                  className="flex items-center gap-2 sm:gap-4 px-3 sm:px-6 lg:px-8 transition-all duration-500 group whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 transition-all duration-500 group whitespace-nowrap"
                   disabled={!userLocation}
                 >
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-xl sm:rounded-2xl bg-gradient-ocean flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Map className="w-3 h-3 sm:w-4 sm:h-4 lg:w-5 lg:h-5 text-white group-hover:animate-pulse-soft" />
+                  <div className="w-7 h-7 rounded-xl bg-gradient-ocean flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <Map className="w-4 h-4 text-white group-hover:animate-pulse-soft" />
                   </div>
-                  <span className="font-bold text-sm sm:text-base lg:text-lg">Nearby</span>
+                  <span className="font-bold text-sm">Nearby</span>
                 </Button>
                 <Button
                   variant={discoveryMode === 'random' ? 'premium' : 'ghost'}
                   size="sm"
                   onClick={() => setDiscoveryMode('random')}
-                  className="flex items-center gap-2 sm:gap-4 px-3 sm:px-6 lg:px-8 transition-all duration-500 group whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 transition-all duration-500 group whitespace-nowrap"
                 >
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-xl sm:rounded-2xl bg-gradient-sunset flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Users className="w-3 h-3 sm:w-4 sm:h-4 lg:w-5 lg:h-5 text-white group-hover:animate-pulse-soft" />
+                  <div className="w-7 h-7 rounded-xl bg-gradient-sunset flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <Users className="w-4 h-4 text-white group-hover:animate-pulse-soft" />
                   </div>
-                  <span className="font-bold text-sm sm:text-base lg:text-lg">Explore</span>
+                  <span className="font-bold text-sm">Explore</span>
                 </Button>
               </div>
 
               {/* View Mode Controls with Filter */}
-              <div className="flex items-center gap-2 sm:gap-4">
-                <div className="flex glass-card-elevated rounded-2xl sm:rounded-3xl p-2 sm:p-3 backdrop-blur-2xl border border-white/20 shadow-elevation">
+              <div className="flex items-center gap-2">
+                <div className="flex glass-card-elevated rounded-xl p-1 backdrop-blur-2xl border border-white/20 shadow-elevation">
                   <Button
                     variant={viewMode === 'stack' ? 'premium' : 'ghost'}
                     size="sm"
                     onClick={() => setViewMode('stack')}
-                    className="px-3 sm:px-6 lg:px-8 transition-all duration-500 group"
+                    className="px-3 transition-all duration-500 group"
                   >
-                    <Heart className="w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 group-hover:animate-pulse-soft" />
-                    <span className="hidden sm:inline">Stack</span>
+                    <Heart className="w-4 h-4 group-hover:animate-pulse-soft" />
                   </Button>
                   <Button
                     variant={viewMode === 'grid' ? 'premium' : 'ghost'}
                     size="sm"
                     onClick={() => setViewMode('grid')}
-                    className="px-3 sm:px-6 lg:px-8 transition-all duration-500 group"
+                    className="px-3 transition-all duration-500 group"
                   >
-                    <Grid className="w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 group-hover:scale-110 transition-transform duration-300" />
-                    <span className="hidden sm:inline">Grid</span>
+                    <Grid className="w-4 h-4 group-hover:scale-110 transition-transform duration-300" />
                   </Button>
                 </div>
                 
@@ -537,13 +654,13 @@ export default function Discover() {
                   size="icon"
                   onClick={() => setIsFilterOpen(true)}
                   className={cn(
-                    "relative shadow-elevation hover:shadow-glow transition-all duration-500 group w-10 h-10 sm:w-12 sm:h-12",
+                    "relative shadow-elevation hover:shadow-glow transition-all duration-500 group w-10 h-10",
                     getActiveFilterCount() > 0 && "animate-pulse-soft"
                   )}
                 >
-                  <Filter className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 group-hover:rotate-180 transition-transform duration-500" />
+                  <Filter className="w-5 h-5 group-hover:rotate-180 transition-transform duration-500" />
                   {getActiveFilterCount() > 0 && (
-                    <div className="absolute -top-2 -right-2 sm:-top-3 sm:-right-3 w-6 h-6 sm:w-8 sm:h-8 bg-gradient-sunrise text-white text-xs sm:text-sm font-bold rounded-full flex items-center justify-center shadow-elevation animate-bounce-gentle">
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-sunrise text-white text-xs font-bold rounded-full flex items-center justify-center shadow-elevation">
                       {getActiveFilterCount()}
                     </div>
                   )}
@@ -560,68 +677,116 @@ export default function Discover() {
               <TravelCardGridSkeleton count={8} />
             )
           ) : viewMode === 'stack' ? (
-            <div className="flex justify-center items-center min-h-[400px] sm:min-h-[500px] md:min-h-[600px] pb-24 sm:pb-28">
+            <div className="flex items-center justify-center h-[calc(100vh-240px)] py-2">
               {hasMoreCards ? (
-                <div className="relative w-full max-w-sm sm:max-w-md lg:max-w-lg">
-                  {/* Card Stack Effect */}
-                  <div className="relative z-10">
-                    <SwipeableCard
-                      user={currentCard}
-                      onSwipe={handleSwipe}
-                      className="animate-scale-in"
-                    >
-                      <TravelCard
-                        user={currentCard}
-                        variant="stack"
-                        showActions={false}
-                      />
-                    </SwipeableCard>
+                <div className="w-full max-w-7xl mx-auto px-6">
+                  {/* Main Content Container - Premium Layout */}
+                  <div className="flex items-center justify-center gap-8 w-full">
+                    
+                    {/* Card Container - Centered */}
+                    <div className="flex-shrink-0">
+                      <div className="relative">
+                        {/* Card Stack Effect */}
+                        <div className="relative z-10">
+                          <SwipeableCard
+                            user={currentCard}
+                            onSwipe={handleSwipe}
+                            className="animate-scale-in"
+                          >
+                            <TravelCard
+                              user={currentCard}
+                              variant="stack"
+                              showActions={false}
+                            />
+                          </SwipeableCard>
+                        </div>
+                        
+                        {/* Next card preview */}
+                        {filteredUsers[currentCardIndex + 1] && (
+                          <div className="absolute top-2 left-2 right-2 z-0 opacity-30 scale-95">
+                            <TravelCard
+                              user={filteredUsers[currentCardIndex + 1]}
+                              variant="stack"
+                              showActions={false}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Compatibility Score - Modern Design */}
+                    {currentCompatibility && (
+                      <div className="hidden lg:flex flex-col justify-center">
+                        <div className="relative">
+                          {/* Glow effect */}
+                          <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-sunrise-coral/20 rounded-2xl blur-xl"></div>
+                          <div className="relative backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl bg-gradient-to-br from-background/90 to-background/70 w-48">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-gradient-to-br from-primary/20 to-sunrise-coral/20 rounded-lg">
+                                <Sparkles className="w-5 h-5 text-primary" />
+                              </div>
+                              <span className="text-sm font-bold text-foreground tracking-wide">MATCH SCORE</span>
+                            </div>
+                            <div className="flex items-baseline gap-1 mb-3">
+                              <span className="text-4xl font-black bg-gradient-to-br from-primary to-sunrise-coral bg-clip-text text-transparent">
+                                {currentCompatibility.overall}
+                              </span>
+                              <span className="text-xl font-bold text-muted-foreground">%</span>
+                            </div>
+                            <div className="text-sm text-muted-foreground leading-relaxed">
+                              {currentCompatibility.reasons.slice(0, 2).join(' • ')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
-                  {/* Next card preview */}
-                  {filteredUsers[currentCardIndex + 1] && (
-                    <div className="absolute top-2 left-2 right-2 z-0 opacity-30 scale-95">
-                      <TravelCard
-                        user={filteredUsers[currentCardIndex + 1]}
-                        variant="stack"
-                        showActions={false}
-                      />
+                  {/* Card Counter - Top Right */}
+                  <div className="absolute top-4 right-4 z-20">
+                    <div className="backdrop-blur-md rounded-full px-3 py-1 border border-white/20 shadow-lg" style={{backgroundColor: 'hsl(var(--background) / 0.95)'}}>
+                      <span className="text-sm font-medium text-muted-foreground">
+                        {currentCardIndex + 1} / {filteredUsers.length}
+                      </span>
                     </div>
-                  )}
+                  </div>
                   
-                  {/* Compatibility Score - Improved Design */}
-                  {currentCompatibility && (
-                    <div className="absolute top-2 sm:top-3 right-2 sm:right-3 backdrop-blur-md rounded-xl p-2 sm:p-2.5 border border-white/20 shadow-lg" style={{backgroundColor: 'hsl(var(--background) / 0.95)'}}>
-                      <div className="flex items-center gap-1 sm:gap-1.5 mb-1">
-                        <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
-                        <span className="text-xs font-medium text-muted-foreground">Match</span>
-                      </div>
-                      <div className="text-base sm:text-lg font-bold text-primary">
-                        {currentCompatibility.overall}%
-                      </div>
-                      <div className="text-xs text-muted-foreground hidden sm:block leading-tight">
-                        {currentCompatibility.reasons.slice(0, 1).join('')}
-                      </div>
+                  {/* Action Buttons - Premium Design */}
+                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-5 z-30">
+                    <div className="relative group/pass">
+                      <div className="absolute inset-0 bg-red-500/30 rounded-full blur-lg group-hover/pass:blur-xl transition-all"></div>
+                      <Button
+                        variant="floating"
+                        size="icon"
+                        onClick={() => handlePass(currentCard.id)}
+                        className="relative w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full backdrop-blur-xl bg-background/40 border-2 border-red-500/40 hover:border-red-500/80 hover:scale-110 hover:bg-red-500/20 transition-all duration-500 shadow-2xl"
+                      >
+                        <X className="w-7 h-7 sm:w-8 sm:h-8 text-red-500 group-hover/pass:rotate-90 transition-transform duration-500" strokeWidth={2.5} />
+                      </Button>
                     </div>
-                  )}
-                  
-                  {/* Card counter */}
-                  <div className="absolute -bottom-12 sm:-bottom-16 left-1/2 transform -translate-x-1/2 text-center">
-                    <p className="text-muted-foreground mb-2 sm:mb-4 text-sm sm:text-base">
-                      {currentCardIndex + 1} of {filteredUsers.length}
-                    </p>
-                    <div className="flex gap-1 sm:gap-2 justify-center">
-                      {filteredUsers.slice(0, 10).map((_, index) => (
-                        <div
-                          key={index}
-                          className={cn(
-                            "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full transition-colors",
-                            index <= currentCardIndex 
-                              ? "bg-primary" 
-                              : "bg-muted"
-                          )}
-                        />
-                      ))}
+
+                    <div className="relative group/star">
+                      <div className="absolute inset-0 bg-sky-blue/40 rounded-full blur-lg group-hover/star:blur-xl transition-all"></div>
+                      <Button
+                        variant="floating"
+                        size="icon"
+                        onClick={() => handleSuperLike(currentCard.id)}
+                        className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full backdrop-blur-xl bg-gradient-to-br from-sky-blue/90 to-midnight-blue/90 border-2 border-sky-blue/60 hover:border-sky-blue hover:scale-110 transition-all duration-500 shadow-2xl"
+                      >
+                        <Star className="w-6 h-6 sm:w-7 sm:h-7 text-white group-hover/star:rotate-12 transition-transform duration-300" fill="currentColor" strokeWidth={2} />
+                      </Button>
+                    </div>
+
+                    <div className="relative group/like">
+                      <div className="absolute inset-0 bg-sunrise-coral/30 rounded-full blur-lg group-hover/like:blur-xl transition-all"></div>
+                      <Button
+                        variant="hero"
+                        size="icon"
+                        onClick={() => handleLike(currentCard.id)}
+                        className="relative w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full backdrop-blur-xl bg-gradient-to-br from-sunrise-coral to-warm-amber border-2 border-sunrise-coral/60 hover:border-sunrise-coral hover:scale-110 transition-all duration-500 shadow-2xl"
+                      >
+                        <Heart className="w-7 h-7 sm:w-8 sm:h-8 text-white group-hover/like:scale-110 transition-transform duration-300" fill="currentColor" strokeWidth={2} />
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -660,6 +825,12 @@ export default function Discover() {
                 const isLiked = swipeHistory.some(swipe => swipe.userId === user.id && swipe.type === 'like');
                 const isPassed = swipeHistory.some(swipe => swipe.userId === user.id && swipe.type === 'pass');
                 
+                // Calculate compatibility score on-the-fly if no recommendation exists
+                const compatibilityScore = recommendation ? recommendation.score.overall : 
+                  (currentUser ? matchingAlgorithm.calculateCompatibility(currentUser, user).overall : 0);
+                const compatibilityReasons = recommendation ? recommendation.reasons : 
+                  (currentUser ? matchingAlgorithm.calculateCompatibility(currentUser, user).reasons : ['Compatible profile']);
+                
                 return (
                   <div 
                     key={user.id}
@@ -690,54 +861,21 @@ export default function Discover() {
                       </div>
                     )}
                     
-                    {recommendation && (
-                      <div className="mt-2 p-2 rounded-lg" style={{backgroundColor: 'hsl(var(--muted) / 0.5)'}}>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Compatibility</span>
-                          <span className="font-medium text-primary">
-                            {recommendation.score.overall}%
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {recommendation.reasons.slice(0, 1).join(', ')}
-                        </div>
+                    {/* Always show compatibility score */}
+                    <div className="mt-2 p-2 rounded-lg" style={{backgroundColor: 'hsl(var(--muted) / 0.5)'}}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Compatibility</span>
+                        <span className="font-medium text-primary">
+                          {compatibilityScore}%
+                        </span>
                       </div>
-                    )}
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {compatibilityReasons.slice(0, 1).join(', ')}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
-            </div>
-          )}
-
-          {/* Enhanced Quick Actions - Stack Mode Only */}
-          {viewMode === 'stack' && hasMoreCards && (
-            <div className="fixed bottom-20 sm:bottom-24 md:bottom-16 left-1/2 transform -translate-x-1/2 flex items-center gap-4 sm:gap-6 md:gap-8 lg:gap-12 z-40 animate-fade-up px-4" style={{animationDelay: '0.8s'}}>
-              <Button
-                variant="floating"
-                size="icon"
-                onClick={() => handlePass(currentCard.id)}
-                className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 rounded-full glass-card-elevated border-red-500/30 hover:border-red-500/60 hover:scale-110 transition-all duration-500 shadow-elevation group hover:shadow-glow"
-              >
-                <X className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 lg:w-12 lg:h-12 text-red-500 group-hover:rotate-90 transition-transform duration-500" />
-              </Button>
-
-              <Button
-                variant="floating"
-                size="icon"
-                onClick={() => handleSuperLike(currentCard.id)}
-                className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 lg:w-20 lg:h-20 rounded-full glass-card-elevated bg-gradient-to-br from-sky-blue to-midnight-blue border-sky-blue/40 hover:scale-110 transition-all duration-500 shadow-elevation group hover:shadow-glow"
-              >
-                <Star className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 lg:w-9 lg:h-9 text-white group-hover:animate-pulse-soft transition-all duration-300" fill="currentColor" />
-              </Button>
-
-              <Button
-                variant="hero"
-                size="icon"
-                onClick={() => handleLike(currentCard.id)}
-                className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 rounded-full glass-card-elevated bg-gradient-sunrise border-sunrise-coral/40 hover:scale-110 transition-all duration-500 shadow-elevation group hover:shadow-glow hover:animate-glow"
-              >
-                <Heart className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 lg:w-12 lg:h-12 text-white group-hover:scale-110 group-hover:animate-pulse-soft transition-all duration-300" fill="currentColor" />
-              </Button>
             </div>
           )}
         </div>

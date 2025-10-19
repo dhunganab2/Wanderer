@@ -2,7 +2,7 @@
  * Base Agent Class
  * Provides common functionality for all AI agents
  */
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default class BaseAgent {
   constructor(name, role, systemPrompt) {
@@ -36,11 +36,9 @@ export default class BaseAgent {
       return false;
     }
 
-    // Initialize the new Gemini client
-    this.client = new GoogleGenAI({
-      apiKey: this.apiKey
-    });
-    this.modelName = "gemini-2.5-flash";
+    // Initialize the Gemini client with API key
+    this.client = new GoogleGenerativeAI(this.apiKey);
+    this.modelName = "gemini-2.0-flash-exp";
 
     return true;
   }
@@ -84,18 +82,15 @@ export default class BaseAgent {
     try {
       console.log(`🚀 ${this.name}: Making API call #${callId} with ${this.modelName}...`);
 
-      // Use new API format with thinking budget set to 0 for faster responses
-      const response = await this.client.models.generateContent({
-        model: this.modelName,
-        contents: prompt,
-        config: {
-          thinking_config: {
-            thinking_budget: 0 // Disable thinking for faster responses
-          }
-        }
-      });
-
-      const responseText = response.text;
+      // Format the prompt correctly for the API
+      const formattedPrompt = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+      
+      // Get the model and generate content using correct @google/generative-ai API
+      const model = this.client.getGenerativeModel({ model: this.modelName });
+      const result = await model.generateContent(formattedPrompt);
+      const response = await result.response;
+      const responseText = response.text();
+      
       console.log(`✅ ${this.name}: API call #${callId} successful (${responseText.length} chars)`);
       return responseText;
     } catch (error) {

@@ -21,6 +21,7 @@ import { DesktopNavigation, Navigation } from '@/components/Navigation';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useMatchingData } from '@/hooks/useMatchingData';
 import { sampleUsers } from '@/data/sampleUsers';
 import { userService, matchingService } from '@/services/firebaseService';
 import { cn } from '@/lib/utils';
@@ -31,67 +32,40 @@ export default function Matches() {
   const { authUser } = useUserProfile();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [likes, setLikes] = useState<any[]>([]);
-  const [likesReceived, setLikesReceived] = useState<any[]>([]);
-  const [matches, setMatches] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [matchSuccess, setMatchSuccess] = useState<string | null>(null);
   const [likingBack, setLikingBack] = useState<string | null>(null);
 
-  // Debug likes state changes
-  useEffect(() => {
-    console.log('Likes state changed:', likes.length, 'likes');
-  }, [likes]);
+  // Use the new matching data hook with caching and deduplication
+  const {
+    matches,
+    likesReceived,
+    userLikes: likes,
+    loading,
+    refresh: refreshMatchingData,
+    invalidateCache,
+  } = useMatchingData(authUser?.uid || null);
 
-  // Load users, likes, and matches from database
+  // Load users from database
   useEffect(() => {
-    const loadData = async () => {
+    const loadUsers = async () => {
       if (!authUser) {
-        console.log('No auth user, skipping data load');
+        console.log('No auth user, skipping users load');
         return;
       }
 
       try {
-        setLoading(true);
-        console.log('🔄 Starting data load for user:', authUser.uid);
-
-        // Fetch all in parallel to avoid flicker
-        const [dbUsers, userLikes, userMatches, receivedLikes] = await Promise.all([
-          userService.getDiscoveryUsers('', []),
-          matchingService.getUserLikes(authUser.uid),
-          matchingService.getUserMatches(authUser.uid),
-          matchingService.getLikesReceived(authUser.uid)
-        ]);
-
+        console.log('🔄 Loading users for user:', authUser.uid);
+        const dbUsers = await userService.getDiscoveryUsers('', []);
         console.log('✅ Loaded users:', dbUsers.length);
-        console.log('✅ Loaded likes for user', authUser.uid, ':', userLikes.length, 'likes');
-        console.log('✅ Loaded matches for user', authUser.uid, ':', userMatches.length, 'matches');
-        console.log('✅ Loaded likes received:', receivedLikes.length, 'likes received');
-        
-        // Debug: Log the actual data
-        console.log('🔍 Debug - Likes received data:', receivedLikes);
-        console.log('🔍 Debug - Matches data:', userMatches);
-
-        // Commit together
         setUsers(dbUsers);
-        setLikes(userLikes);
-        setMatches(userMatches);
-        setLikesReceived(receivedLikes);
-
       } catch (error) {
-        console.error('❌ Error loading data:', error);
+        console.error('❌ Error loading users:', error);
         setUsers([]);
-        setLikes([]);
-        setMatches([]);
-        setLikesReceived([]);
-      } finally {
-        setLoading(false);
-        console.log('✅ Data loading completed');
       }
     };
 
-    loadData();
-  }, [authUser]);
+    loadUsers();
+  }, [authUser, setUsers]);
 
   // Get actual mutual matches from database (only show these in Matches tab)
   const mutualMatches = matches.filter(match => match.status === 'accepted');
@@ -205,29 +179,15 @@ export default function Matches() {
         console.log('🎉 IT\'S A MATCH! Match ID:', result.matchId);
       }
 
-      // Always refresh data from backend to ensure consistency
+      // Invalidate cache and refresh data from backend
       console.log('🔄 Refreshing data after like back...');
-      const [userMatches, receivedLikes, userLikes] = await Promise.all([
-        matchingService.getUserMatches(authUser.uid),
-        matchingService.getLikesReceived(authUser.uid),
-        matchingService.getUserLikes(authUser.uid)
-      ]);
-
-      // Update all state with fresh data from backend
-      setMatches(userMatches);
-      setLikesReceived(receivedLikes);
-      setLikes(userLikes);
-
-      console.log('✅ Data refreshed:', {
-        matches: userMatches.length,
-        likesReceived: receivedLikes.length,
-        likes: userLikes.length
-      });
+      invalidateCache(); // Clear all caches to force fresh data
+      await refreshMatchingData(); // Fetch fresh data
 
       if (result.match) {
-        console.log('🎉 Match created! Refreshed matches:', userMatches.length);
+        console.log('🎉 Match created! Showing success message');
         // Show success message
-        const matchedUser = receivedLikes.find(like => like.user.id === userId)?.user;
+        const matchedUser = likesReceived.find(like => like.user.id === userId)?.user;
         if (matchedUser) {
           setMatchSuccess(`🎉 It's a match with ${matchedUser.name}!`);
           // Clear success message after 3 seconds
@@ -239,12 +199,8 @@ export default function Matches() {
       console.error('Error liking back user:', error);
       // Still refresh data even if there was an error
       try {
-        const [userMatches, receivedLikes] = await Promise.all([
-          matchingService.getUserMatches(authUser.uid),
-          matchingService.getLikesReceived(authUser.uid)
-        ]);
-        setMatches(userMatches);
-        setLikesReceived(receivedLikes);
+        invalidateCache();
+        await refreshMatchingData();
       } catch (refreshError) {
         console.error('Error refreshing data after error:', refreshError);
       }
@@ -258,31 +214,15 @@ export default function Matches() {
     if (!authUser) return;
     
     try {
-      setLoading(true);
       console.log('🔄 Refreshing all data from backend...');
       
-      // Load all data in parallel
-      const [userLikes, userMatches, receivedLikes] = await Promise.all([
-        matchingService.getUserLikes(authUser.uid),
-        matchingService.getUserMatches(authUser.uid),
-        matchingService.getLikesReceived(authUser.uid)
-      ]);
-      
-      // Update all state
-      setLikes(userLikes);
-      setMatches(userMatches);
-      setLikesReceived(receivedLikes);
-      
-      console.log('✅ Data refreshed:', {
-        likes: userLikes.length,
-        matches: userMatches.length,
-        likesReceived: receivedLikes.length
-      });
-      
+      // Invalidate cache and refresh
+      invalidateCache();
+      await refreshMatchingData();
+
+      console.log('✅ Data refreshed successfully');
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
-      setLoading(false);
     }
   };
 

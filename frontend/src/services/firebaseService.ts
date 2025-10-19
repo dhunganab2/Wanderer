@@ -318,21 +318,37 @@ export const matchingService = {
   // Get user's swipe history from database
   async getUserSwipes(userId: string): Promise<SwipeAction[]> {
     try {
-      const swipesQuery = query(
-        collection(db, 'swipes'),
-        where('userId', '==', userId),
-        orderBy('timestamp', 'desc')
-      );
-      
+      console.log('📥 Fetching swipes for user:', userId);
+
+      // Get all swipes and filter in JavaScript to avoid index issues
+      // Using orderBy with where requires a composite index which may not exist
+      const swipesQuery = collection(db, 'swipes');
       const querySnapshot = await getDocs(swipesQuery);
-      const swipes = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as SwipeAction & { swipedUserId: string }));
-      
+      console.log('📊 Total swipes in database:', querySnapshot.docs.length);
+
+      const swipes = querySnapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as SwipeAction & { swipedUserId: string }))
+        .filter(swipe => swipe.userId === userId)
+        .sort((a, b) => {
+          // Sort by timestamp descending (most recent first)
+          const timeA = new Date(a.timestamp).getTime();
+          const timeB = new Date(b.timestamp).getTime();
+          return timeB - timeA;
+        });
+
+      console.log('✅ Found', swipes.length, 'swipes for user', userId);
+      console.log('📋 Swipe breakdown:', {
+        likes: swipes.filter(s => s.type === 'like').length,
+        passes: swipes.filter(s => s.type === 'pass').length,
+        superlikes: swipes.filter(s => s.type === 'superlike').length
+      });
+
       return swipes;
     } catch (error) {
-      console.error('Error loading user swipes:', error);
+      console.error('❌ Error loading user swipes:', error);
       return [];
     }
   },

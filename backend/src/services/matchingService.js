@@ -31,23 +31,25 @@ function calculateDistance(coord1, coord2) {
 class AdvancedMatchingService {
   constructor() {
     // Component weights for hybrid scoring
+    // Increased content-based and reduced less informative components
     this.componentWeights = {
-      contentBased: 0.35,
-      collaborative: 0.25,
-      graphSimilarity: 0.15,
-      textSimilarity: 0.15,
-      temporalRelevance: 0.05,
-      diversityBonus: 0.05
+      contentBased: 0.50,      // Main driver of compatibility (was 0.35)
+      collaborative: 0.20,     // User behavior patterns (was 0.25)
+      graphSimilarity: 0.15,   // Social network analysis (unchanged)
+      textSimilarity: 0.10,    // Text/bio similarity (was 0.15)
+      temporalRelevance: 0.03, // Time-based factors (was 0.05)
+      diversityBonus: 0.02     // Exploration bonus (was 0.05)
     };
 
     // Feature weights for content-based filtering
+    // Prioritize destination and travel style over demographics
     this.featureWeights = {
-      destination: 0.25,
-      travelStyle: 0.20,
-      interests: 0.20,
-      location: 0.15,
-      age: 0.10,
-      personality: 0.10
+      destination: 0.30,       // Most important (was 0.25)
+      travelStyle: 0.25,       // Very important (was 0.20)
+      interests: 0.20,         // Important (unchanged)
+      personality: 0.12,       // Somewhat important (was 0.10)
+      location: 0.08,          // Less important (was 0.15)
+      age: 0.05                // Least important (was 0.10)
     };
 
     // ELO rating parameters
@@ -182,7 +184,8 @@ class AdvancedMatchingService {
   }
 
   /**
-   * Get candidate users (all users except current user and already swiped)
+   * Get candidate users (all users except current user, passed users, and matched users)
+   * Users who were LIKED but not matched yet are still included
    */
   async getCandidateUsers(currentUserId) {
     try {
@@ -191,12 +194,23 @@ class AdvancedMatchingService {
 
       const candidates = [];
       usersSnapshot.forEach(doc => {
-        if (doc.id !== currentUserId && !userHistory.swipes.has(doc.id)) {
-          candidates.push({
-            id: doc.id,
-            ...doc.data()
-          });
-        }
+        const userId = doc.id;
+
+        // Skip current user
+        if (userId === currentUserId) return;
+
+        // Skip if already matched
+        if (userHistory.matches.has(userId)) return;
+
+        // Skip if passed (swiped left/disliked)
+        const swipeType = userHistory.swipes.get(userId);
+        if (swipeType === 'pass' || swipeType === 'dislike') return;
+
+        // Include users who haven't been swiped OR who were liked (but not matched yet)
+        candidates.push({
+          id: userId,
+          ...doc.data()
+        });
       });
 
       return candidates;
@@ -337,24 +351,34 @@ class AdvancedMatchingService {
    */
   calculateCollaborativeScore(user1, user2, history) {
     if (!history || history.swipes.size === 0) {
-      return 0.5; // Neutral score for cold start
+      // Cold start: fallback to content-based features
+      return this.calculateContentBasedScore(user1, user2);
     }
 
-    // Simple implementation: check if user has liked similar profiles
-    let positiveCount = 0;
-    let totalCount = 0;
+    // Calculate similarity between candidate and users the current user liked
+    let likedCount = 0;
+    let dislikedCount = 0;
 
     history.swipes.forEach((swipeType, swipedUserId) => {
-      totalCount++;
+      // Compare candidate with each swiped user based on available features
+      // For now, use a simplified approach: weight by like/dislike ratio
       if (swipeType === 'like') {
-        positiveCount++;
+        likedCount++;
+      } else if (swipeType === 'dislike') {
+        dislikedCount++;
       }
     });
 
-    if (totalCount === 0) return 0.5;
+    const totalCount = likedCount + dislikedCount;
+    if (totalCount === 0) return this.calculateContentBasedScore(user1, user2);
 
-    // Return user's like ratio as collaborative signal
-    return positiveCount / totalCount;
+    // If user is very selective (low like ratio), boost content-based matching
+    // If user likes everyone, rely more on specific feature matching
+    const selectivity = likedCount / totalCount;
+
+    // Blend with content-based score weighted by user's selectivity
+    const contentScore = this.calculateContentBasedScore(user1, user2);
+    return contentScore * (0.7 + selectivity * 0.3);
   }
 
   /**
@@ -391,13 +415,24 @@ class AdvancedMatchingService {
     const text1 = this.extractTextFeatures(user1);
     const text2 = this.extractTextFeatures(user2);
 
-    if (!text1 || !text2) return 0.5;
+    // If both have minimal text, return neutral
+    if ((!text1 || text1.trim().length < 10) && (!text2 || text2.trim().length < 10)) {
+      return 0.5;
+    }
+
+    // If only one has text, return low similarity
+    if (!text1 || text1.trim().length < 10 || !text2 || text2.trim().length < 10) {
+      return 0.3;
+    }
 
     // Simple word overlap similarity
     const words1 = text1.toLowerCase().split(/\W+/).filter(w => w.length > 2);
     const words2 = text2.toLowerCase().split(/\W+/).filter(w => w.length > 2);
 
-    return this.jaccardSimilarity(words1, words2);
+    const similarity = this.jaccardSimilarity(words1, words2);
+
+    // Boost the similarity if both have substantial text
+    return similarity;
   }
 
   /**
@@ -422,13 +457,16 @@ class AdvancedMatchingService {
    */
   calculateDiversityBonus(user1, user2) {
     const diversityScore = this.calculateDiversity(user1, user2);
-    const shouldExplore = Math.random() < 0.1; // 10% exploration
 
-    if (shouldExplore && diversityScore > 0.6) {
-      return 0.8; // Boost diverse matches
+    // Award points for healthy diversity (not too similar, not too different)
+    // Sweet spot is around 0.3-0.6 diversity
+    if (diversityScore >= 0.3 && diversityScore <= 0.6) {
+      return 0.7; // Good balance
+    } else if (diversityScore > 0.6) {
+      return 0.5; // Too diverse
+    } else {
+      return 0.6; // Very similar (slightly positive)
     }
-
-    return 0.5; // Neutral
   }
 
   /**
@@ -436,12 +474,18 @@ class AdvancedMatchingService {
    */
   jaccardSimilarity(set1, set2) {
     if (!Array.isArray(set1) || !Array.isArray(set2)) return 0;
-    if (set1.length === 0 && set2.length === 0) return 0;
+
+    // If both arrays are empty, return neutral score instead of 0
+    // This avoids penalizing users with incomplete profiles
+    if (set1.length === 0 && set2.length === 0) return 0.5;
+
+    // If only one is empty, they have no similarity
+    if (set1.length === 0 || set2.length === 0) return 0;
 
     const intersection = set1.filter(x => set2.includes(x)).length;
     const union = new Set([...set1, ...set2]).size;
 
-    if (union === 0) return 0;
+    if (union === 0) return 0.5;
     return intersection / union;
   }
 
@@ -452,17 +496,27 @@ class AdvancedMatchingService {
     const dest1 = (user1.nextDestination || '').toLowerCase();
     const dest2 = (user2.nextDestination || '').toLowerCase();
 
-    if (!dest1 || !dest2) return 0.3;
+    // If both have no destination, neutral score
+    if (!dest1 && !dest2) return 0.5;
+
+    // If only one has destination, lower similarity
+    if (!dest1 || !dest2) return 0.2;
+
+    // Exact match
     if (dest1 === dest2) return 1.0;
 
     // Check if they share words (e.g., "Paris, France" and "France")
-    const words1 = dest1.split(/\W+/);
-    const words2 = dest2.split(/\W+/);
+    const words1 = dest1.split(/\W+/).filter(w => w.length > 2);
+    const words2 = dest2.split(/\W+/).filter(w => w.length > 2);
     const overlap = words1.filter(w => words2.includes(w)).length;
 
-    if (overlap > 0) return 0.7;
+    if (overlap > 0) {
+      // Scale based on overlap ratio
+      const overlapRatio = overlap / Math.max(words1.length, words2.length);
+      return 0.5 + overlapRatio * 0.4; // Range: 0.5 to 0.9
+    }
 
-    return 0.3;
+    return 0.2; // No overlap
   }
 
   /**
@@ -491,8 +545,25 @@ class AdvancedMatchingService {
    * Helper: Personality Similarity
    */
   personalitySimilarity(bio1, bio2) {
+    // If both bios are empty or very short, return neutral
+    if ((!bio1 || bio1.length < 20) && (!bio2 || bio2.length < 20)) {
+      return 0.5;
+    }
+
+    // If only one has a bio, return lower similarity
+    if (!bio1 || bio1.length < 20 || !bio2 || bio2.length < 20) {
+      return 0.3;
+    }
+
     const traits1 = this.extractPersonalityTraits(bio1);
     const traits2 = this.extractPersonalityTraits(bio2);
+
+    // If no traits detected, use basic text similarity
+    if (traits1.length === 0 && traits2.length === 0) {
+      const words1 = bio1.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+      const words2 = bio2.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+      return this.jaccardSimilarity(words1, words2);
+    }
 
     return this.jaccardSimilarity(traits1, traits2);
   }
@@ -993,6 +1064,142 @@ class AdvancedMatchingService {
     } catch (error) {
       console.error('Error getting likes received:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get Smart Match recommendations (sorted by compatibility score)
+   * Excludes already swiped users
+   */
+  async getSmartMatches(currentUserId, filters = {}, limit = 20) {
+    try {
+      console.log(`🎯 Getting Smart Matches for user ${currentUserId}`);
+
+      // Get all matches with full scoring
+      const matches = await this.findMatches(currentUserId, filters, limit * 2);
+
+      // Sort by overall compatibility score (highest first)
+      const sortedMatches = matches.sort((a, b) => b.score.overall - a.score.overall);
+
+      console.log(`✅ Smart Match: Returning top ${limit} matches sorted by score`);
+      return sortedMatches.slice(0, limit);
+    } catch (error) {
+      console.error('Error in getSmartMatches:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get Nearby recommendations (sorted by location distance)
+   * Excludes already swiped users
+   */
+  async getNearbyMatches(currentUserId, filters = {}, limit = 20) {
+    try {
+      console.log(`📍 Getting Nearby Matches for user ${currentUserId}`);
+
+      const currentUser = await this.getUserProfile(currentUserId);
+      if (!currentUser || !currentUser.coordinates) {
+        throw new Error('Current user location not available');
+      }
+
+      // Fetch candidate users (already excludes swiped users)
+      const candidates = await this.getCandidateUsers(currentUserId);
+
+      // Filter by location and calculate distances
+      const candidatesWithDistance = candidates
+        .filter(candidate => candidate.coordinates)
+        .map(candidate => {
+          const distance = calculateDistance(currentUser.coordinates, candidate.coordinates);
+          return {
+            user: candidate,
+            distance,
+            score: {
+              overall: 0.5, // Neutral score for nearby
+              confidence: 0.5,
+              breakdown: {},
+              eloRating: this.BASE_RATING,
+              reasons: [`${distance.toFixed(1)} km away`],
+              improvementSuggestions: []
+            },
+            rank: 0,
+            category: 'nearby',
+            matchedAt: new Date()
+          };
+        });
+
+      // Apply distance filter if specified
+      let filtered = candidatesWithDistance;
+      if (filters.maxDistance) {
+        filtered = candidatesWithDistance.filter(c => c.distance <= filters.maxDistance);
+      }
+
+      // Sort by distance (closest first)
+      const sorted = filtered.sort((a, b) => a.distance - b.distance);
+
+      // Apply other filters
+      const finalFiltered = this.applyFilters(currentUser, sorted.map(s => s.user), filters);
+      const result = sorted.filter(s => finalFiltered.includes(s.user));
+
+      // Assign ranks
+      result.forEach((match, index) => {
+        match.rank = index + 1;
+      });
+
+      console.log(`✅ Nearby Match: Returning ${result.length} matches sorted by distance`);
+      return result.slice(0, limit);
+    } catch (error) {
+      console.error('Error in getNearbyMatches:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get Explore recommendations (randomized)
+   * Excludes already swiped users
+   */
+  async getExploreMatches(currentUserId, filters = {}, limit = 20) {
+    try {
+      console.log(`🎲 Getting Explore Matches for user ${currentUserId}`);
+
+      const currentUser = await this.getUserProfile(currentUserId);
+      if (!currentUser) {
+        throw new Error('Current user not found');
+      }
+
+      // Fetch candidate users (already excludes swiped users)
+      const candidates = await this.getCandidateUsers(currentUserId);
+
+      // Apply basic filters
+      const filtered = this.applyFilters(currentUser, candidates, filters);
+
+      // Randomize the order using Fisher-Yates shuffle
+      const shuffled = [...filtered];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+
+      // Create match objects with neutral scores
+      const matches = shuffled.slice(0, limit).map((candidate, index) => ({
+        user: candidate,
+        score: {
+          overall: 0.5, // Neutral score for explore
+          confidence: 0.3,
+          breakdown: {},
+          eloRating: this.BASE_RATING,
+          reasons: ['Discover someone new'],
+          improvementSuggestions: []
+        },
+        rank: index + 1,
+        category: 'exploratory',
+        matchedAt: new Date()
+      }));
+
+      console.log(`✅ Explore Match: Returning ${matches.length} randomized matches`);
+      return matches;
+    } catch (error) {
+      console.error('Error in getExploreMatches:', error);
+      throw error;
     }
   }
 

@@ -36,6 +36,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { userService, matchingService } from '@/services/firebaseService';
 import { useAppStore } from '@/store/useAppStore';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useMatchingData } from '@/hooks/useMatchingData';
 import { sampleUsers, travelStyleOptions } from '@/data/sampleUsers';
 import { imageService } from '@/services/imageService';
 import { imageMetadataService } from '@/services/imageMetadataService';
@@ -56,6 +57,9 @@ export default function Profile() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [isMatched, setIsMatched] = useState(false);
+  
+  // Use cached matching data hook
+  const { matches: cachedMatches } = useMatchingData(authUser?.uid || null);
 
   // Use viewed user (route param) or fallback to current auth user
   const [viewedUser, setViewedUser] = useState<UserType | null>(null);
@@ -86,26 +90,17 @@ export default function Profile() {
 
   // Check if current user is matched with viewed user
   useEffect(() => {
-    const checkMatch = async () => {
-      if (!authUser || !userId || isOwnProfile) {
-        setIsMatched(false);
-        return;
-      }
+    if (!authUser || !userId || isOwnProfile) {
+      setIsMatched(false);
+      return;
+    }
 
-      try {
-        const matches = await matchingService.getUserMatches(authUser.uid);
-        const isUserMatched = matches.some(match =>
-          match.users.includes(userId) && match.status === 'accepted'
-        );
-        setIsMatched(isUserMatched);
-      } catch (error) {
-        console.error('Error checking match status:', error);
-        setIsMatched(false);
-      }
-    };
-
-    checkMatch();
-  }, [authUser, userId, isOwnProfile]);
+    // Use cached matches instead of fetching
+    const isUserMatched = cachedMatches.some(match =>
+      match.users.includes(userId) && match.status === 'accepted'
+    );
+    setIsMatched(isUserMatched);
+  }, [authUser, userId, isOwnProfile, cachedMatches]);
 
   // Load user images from database
   useEffect(() => {
