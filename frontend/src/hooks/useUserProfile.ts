@@ -73,6 +73,7 @@ export const useUserProfile = () => {
           }
         } else {
           // New user - no profile exists or can't access due to permissions
+          console.log('⚠️ No profile found for user:', authUser.uid);
           setIsNewUser(true);
           setUser(null);
           setProfileComplete(false);
@@ -138,19 +139,25 @@ export const useUserProfile = () => {
       console.log('Created profile fetched:', createdProfile);
       
       if (createdProfile) {
+        console.log('✅ Profile created and fetched successfully:', {
+          id: createdProfile.id,
+          name: createdProfile.name,
+          age: createdProfile.age
+        });
         setUser(createdProfile);
         setCurrentUser(createdProfile);
         setIsNewUser(false);
         
         // Check if profile is actually complete
         const isComplete = await userService.isProfileComplete(authUser.uid);
-        console.log('Profile completeness check:', isComplete);
+        console.log('✅ Profile completeness check:', isComplete);
         setProfileComplete(isComplete);
         
-        // Force a page refresh to ensure clean state
-        setTimeout(() => {
-          window.location.reload();
-        }, 100);
+        // Force the state update to propagate
+        return createdProfile;
+      } else {
+        console.error('❌ Failed to fetch created profile');
+        throw new Error('Profile created but could not be retrieved');
       }
     } catch (err) {
       console.error('Error creating user profile:', err);

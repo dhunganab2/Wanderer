@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { OnboardingFlow } from './OnboardingFlow';
@@ -41,15 +41,12 @@ export const ProfileSetupFlow: React.FC = () => {
         photos: data.photo ? [data.photo] : [],
       };
 
-      console.log('Creating user profile with data:', userProfileData);
-      await createUserProfile(userProfileData);
+      console.log('🚀 Creating user profile with data:', userProfileData);
+      const result = await createUserProfile(userProfileData);
       
-      console.log('Profile created successfully!');
+      console.log('✅ Profile created successfully!', result);
       setSetupComplete(true);
       toast.success('Profile created successfully! Welcome to Wander!');
-      
-      // Navigate to main app immediately - the ProtectedRoute will handle the rest
-      navigate('/discover');
       
     } catch (err) {
       console.error('Error setting up profile:', err);
@@ -58,6 +55,23 @@ export const ProfileSetupFlow: React.FC = () => {
       setSetupLoading(false);
     }
   };
+
+  // Navigate immediately when setup is complete
+  useEffect(() => {
+    if (setupComplete) {
+      console.log('🎉 Setup complete, navigating to discover...');
+      // Set flag to bypass profile check temporarily
+      sessionStorage.setItem('profileJustCreated', 'true');
+      // Also set a timestamp to make sure it persists
+      localStorage.setItem('profileCreatedAt', Date.now().toString());
+      
+      const timer = setTimeout(() => {
+        console.log('⏭️ Navigating now...');
+        navigate('/discover', { replace: true });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [setupComplete, navigate]);
 
   if (setupComplete) {
     return (

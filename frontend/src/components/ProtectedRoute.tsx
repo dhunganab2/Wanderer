@@ -17,12 +17,14 @@ const ProtectedRoute = ({ children, requireProfile = true }: ProtectedRouteProps
   // Debug logging
   React.useEffect(() => {
     if (!loading && !profileLoading) {
-      console.log('ProtectedRoute Debug:', {
+      console.log('🔒 ProtectedRoute Debug:', {
         user: !!user,
+        userId: user?.uid,
         profileComplete,
         isNewUser,
         currentPath: location.pathname,
-        requireProfile
+        requireProfile,
+        sessionFlag: sessionStorage.getItem('profileJustCreated')
       });
     }
   }, [user, profileComplete, isNewUser, loading, profileLoading, location.pathname, requireProfile]);
@@ -51,6 +53,27 @@ const ProtectedRoute = ({ children, requireProfile = true }: ProtectedRouteProps
   if (isNewUser || !profileComplete) {
     // Don't redirect if we're already on the setup page
     if (location.pathname !== '/setup-profile') {
+      // Add a small delay to allow profile state to update after creation
+      // This prevents redirect loop when coming from profile setup
+      const justCompletedSetup = sessionStorage.getItem('profileJustCreated');
+      const profileCreatedAt = localStorage.getItem('profileCreatedAt');
+      
+      // If profile was created in the last 5 minutes, allow access
+      if (justCompletedSetup) {
+        console.log('🔓 Bypassing check - profile just created (session)');
+        sessionStorage.removeItem('profileJustCreated');
+        return <>{children}</>;
+      }
+      
+      if (profileCreatedAt) {
+        const timeSinceCreation = Date.now() - parseInt(profileCreatedAt);
+        if (timeSinceCreation < 5 * 60 * 1000) { // 5 minutes
+          console.log('🔓 Bypassing check - profile created recently');
+          return <>{children}</>;
+        }
+      }
+      
+      console.log('🔒 Redirecting to profile setup - profile incomplete');
       return <Navigate to="/setup-profile" replace />;
     }
   }
