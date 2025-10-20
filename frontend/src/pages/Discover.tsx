@@ -565,7 +565,7 @@ export default function Discover() {
   const currentCompatibility = getCurrentCardCompatibility();
 
   return (
-    <div className="h-screen bg-background overflow-hidden">
+    <div className="min-h-screen bg-background">
       {/* Desktop Navigation */}
       <DesktopNavigation className="hidden md:flex" />
       
@@ -819,7 +819,7 @@ export default function Discover() {
               )}
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
               {filteredUsers.map((user, index) => {
                 const recommendation = matchRecommendations.find(rec => rec.user.id === user.id);
                 const isLiked = swipeHistory.some(swipe => swipe.userId === user.id && swipe.type === 'like');
