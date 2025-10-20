@@ -49,7 +49,8 @@ const Signup = () => {
 
     try {
       await signUp(formData.email, formData.password);
-      navigate('/discover');
+      // Redirect to profile setup instead of discover
+      navigate('/setup-profile');
     } catch (error: any) {
       setError(error.message || 'Failed to create account');
     } finally {
@@ -63,7 +64,8 @@ const Signup = () => {
 
     try {
       await signInWithGoogle();
-      navigate('/discover');
+      // Redirect to profile setup instead of discover
+      navigate('/setup-profile');
     } catch (error: any) {
       setError(error.message || 'Failed to sign up with Google');
     } finally {
