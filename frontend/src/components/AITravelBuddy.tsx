@@ -138,7 +138,7 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
             'shadow-sm whitespace-pre-wrap break-words',
             isUser
               ? 'bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-white ml-4 shadow-lg'
-              : 'bg-gradient-to-br from-gray-50 to-white text-gray-800 border border-gray-200 mr-4 shadow-md hover:shadow-lg',
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 mr-4 shadow-md hover:shadow-lg',
             'transition-all duration-200'
           )}
         >
@@ -149,7 +149,7 @@ const AITravelBuddy: React.FC<AIChatProps> = ({
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
               </div>
-              <span className="text-gray-500 ml-2">WanderBuddy is typing...</span>
+              <span className="text-gray-600 dark:text-gray-400 ml-2">WanderBuddy is typing...</span>
             </div>
           ) : (
             <div
