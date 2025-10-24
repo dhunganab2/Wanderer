@@ -1,192 +1,180 @@
-# Wanderer - AI-Powered Travel Companion Matching App
+# Wanderer - AI-Powered Travel Companion Matching Platform
 
-A modern travel companion matching application with advanced AI trip planning capabilities, built with React, Node.js, and Firebase.
+A comprehensive travel companion matching application with advanced AI trip planning capabilities, built with React, Node.js, and Firebase.
 
-## 🌟 Key Features
+## Overview
 
-### Core App Features
-- 🔐 **User Authentication** - Firebase-based secure authentication
-- 🎯 **Smart Matching** - Swipe-based travel companion matching system
-- 💬 **Real-time Messaging** - Socket.io powered chat for matched users
-- 📱 **Responsive Design** - Modern UI with Tailwind CSS and Radix UI
+Wanderer connects travelers with compatible companions and provides intelligent trip planning through a sophisticated multi-agent AI system. The platform features real-time matching, messaging, and personalized travel recommendations.
 
-### 🤖 Advanced AI Travel Planning System
-- ⚡ **Instant Responses** - Lightning-fast greetings and interactions (<100ms)
-- 🧠 **Multi-Agent AI Architecture** - Specialized AI agents working together:
-  - **ChatManager** - Main conversation interface and coordination
-  - **DataScout** - Live travel data gathering (flights, hotels, weather)
-  - **ChiefTravelPlanner** - Comprehensive trip planning and itineraries
+## Key Features
+
+### Core Application
+- **User Authentication** - Firebase-based secure authentication system
+- **Smart Matching** - Swipe-based travel companion matching with advanced algorithms
+- **Real-time Messaging** - Socket.io powered chat system for matched users
+- **Responsive Design** - Modern UI built with React, Tailwind CSS, and Radix UI components
+- **Location-based Discovery** - Find travel companions based on location and preferences
+
+### AI Travel Planning System
+- **Instant Response System** - Lightning-fast responses (under 100ms) for greetings and simple queries
+- **Multi-Agent Architecture** - Specialized AI agents working in coordination:
+  - **ChatManager** - Main conversation interface and user interaction coordinator
+  - **DataScout** - Live travel data gathering (flights, hotels, weather, attractions)
+  - **ChiefTravelPlanner** - Comprehensive trip planning and itinerary coordination
   - **ProfileAnalyst** - Personalized recommendations based on user preferences
-  - **ItineraryArchitect** - Detailed day-by-day travel plans
+  - **ItineraryArchitect** - Detailed day-by-day travel plan creation
 
-### 🔧 AI System Features
-- 🔄 **API Key Rotation** - Intelligent rotation across multiple Gemini API keys
-- 📊 **Real-time Status Updates** - Live progress tracking via WebSocket
-- 💾 **Conversation Memory** - Persistent conversation state management
-- 🎯 **Personalization** - AI-powered suggestions based on user profiles
-- 🛡️ **Graceful Fallbacks** - Continues working even when AI services are limited
+### Advanced AI Features
+- **API Key Rotation** - Intelligent rotation across multiple Gemini API keys for reliability
+- **Real-time Status Updates** - Live progress tracking via WebSocket connections
+- **Conversation Memory** - Persistent conversation state and context management
+- **Personalization Engine** - AI-powered suggestions based on user profiles and travel history
+- **Graceful Fallbacks** - System continues working even when AI services are limited
 
-## 📁 Project Structure
+## Technology Stack
+
+### Frontend
+- **React 18** with TypeScript
+- **Vite** for build tooling
+- **Tailwind CSS** for styling
+- **Radix UI** for accessible components
+- **Zustand** for state management
+- **Socket.io Client** for real-time communication
+
+### Backend
+- **Node.js** with Express
+- **Firebase Firestore** for database
+- **Socket.io** for real-time messaging
+- **Google Gemini AI** for intelligent responses
+- **SerpAPI** for live travel data
+- **OpenWeatherMap** for weather information
+
+### Infrastructure
+- **Firebase** for authentication and hosting
+- **Firestore** for real-time database
+- **Firebase Storage** for file uploads
+
+## Project Structure
 
 ```
 wanderer/
-├── frontend/                    # React frontend application
+├── frontend/                           # React frontend application
 │   ├── src/
-│   │   ├── components/         # Reusable UI components
-│   │   ├── pages/             # Application pages/routes
-│   │   ├── services/          # API services and utilities
-│   │   ├── store/             # State management (Zustand)
-│   │   └── types/             # TypeScript type definitions
-│   ├── public/                # Static assets
-│   └── package.json           # Frontend dependencies
-├── backend/                     # Node.js backend API with AI system
+│   │   ├── components/                 # Reusable UI components
+│   │   │   ├── ui/                     # Radix UI components
+│   │   │   ├── AITravelBuddy.tsx       # AI chat interface
+│   │   │   ├── SwipeableCard.tsx       # Matching cards
+│   │   │   └── ...                     # Other components
+│   │   ├── pages/                      # Application pages/routes
+│   │   │   ├── Discover.tsx            # User discovery/swiping
+│   │   │   ├── Messages.tsx            # Chat interface
+│   │   │   ├── Map.tsx                 # Interactive map
+│   │   │   └── ...                     # Other pages
+│   │   ├── services/                   # API services and utilities
+│   │   ├── store/                      # State management (Zustand)
+│   │   ├── hooks/                      # Custom React hooks
+│   │   ├── types/                       # TypeScript type definitions
+│   │   └── lib/                        # Utility libraries
+│   ├── public/                         # Static assets
+│   └── package.json                    # Frontend dependencies
+├── backend/                            # Node.js backend API
 │   ├── src/
-│   │   ├── ai-agents/         # Advanced AI system
-│   │   │   ├── agents/        # Individual AI agents
-│   │   │   ├── utils/         # Shared AI utilities
-│   │   │   └── services/      # AI orchestration services
-│   │   ├── controllers/       # API controllers
-│   │   ├── routes/           # Express routes
-│   │   ├── services/         # Business logic
-│   │   └── models/           # Data models
-│   └── README.md             # Detailed backend documentation
-├── firebase.json              # Firebase configuration
-├── firestore.rules           # Database security rules
-└── package.json              # Root workspace configuration
+│   │   ├── ai-agents/                  # Advanced AI system
+│   │   │   ├── QuickResponseAIService.js    # Main AI service
+│   │   │   ├── ChatManagerAgent.js          # Conversation manager
+│   │   │   ├── DataScoutAgent.js            # Data gathering
+│   │   │   ├── ChiefTravelPlannerAgent.js   # Trip planning
+│   │   │   ├── ProfileAnalystAgent.js      # User analysis
+│   │   │   ├── ItineraryArchitectAgent.js  # Itinerary creation
+│   │   │   └── BaseAgent.js                 # Base agent class
+│   │   ├── controllers/                # API controllers
+│   │   ├── routes/                     # Express routes
+│   │   ├── services/                   # Business logic
+│   │   ├── models/                     # Data models
+│   │   ├── middleware/                 # Express middleware
+│   │   ├── config/                     # Configuration
+│   │   └── scripts/                    # Utility scripts
+│   ├── data/                           # Local data files
+│   ├── package.json                    # Backend dependencies
+│   └── env.example                     # Environment variables template
+├── firebase.json                       # Firebase configuration
+├── firestore.rules                     # Database security rules
+├── firestore.indexes.json             # Database indexes
+├── storage.rules                       # Storage security rules
+├── .gitignore                          # Git ignore rules
+└── package.json                        # Root workspace configuration
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-
 - Node.js (v18 or higher)
-- npm or yarn
-- Firebase project with Firestore
+- Firebase project with Firestore enabled
 - Google Gemini API keys (3 recommended for rotation)
-- SerpAPI key (for live travel data)
+- SerpAPI key for live travel data
 - OpenWeatherMap API key
 
 ### Installation
 
-1. **Clone the repository**
-2. **Install all dependencies:**
+1. **Clone the repository:**
    ```bash
-   npm run install:all
+   git clone <repository-url>
+   cd wanderer
    ```
 
-### Configuration
-
-1. **Backend Setup:**
+2. **Install dependencies:**
    ```bash
+   # Install root dependencies
+   npm install
+   
+   # Install backend dependencies
+   cd backend
+   npm install
+   
+   # Install frontend dependencies
+   cd ../frontend
+   npm install
+   ```
+
+3. **Environment Setup:**
+   ```bash
+   # Backend environment
    cd backend
    cp env.example .env
-   # Edit .env with your API keys
+   # Edit .env with your API keys and configuration
    ```
 
-2. **Frontend Setup:**
+4. **Firebase Setup:**
    ```bash
-   cd frontend
-   cp .env.example .env.local
-   # Configure your environment variables
+   # Place your Firebase service account key at:
+   backend/src/services/serviceAccountKey.json
    ```
 
-3. **Firebase Setup:**
-   - Place your Firebase service account key at `backend/src/services/serviceAccountKey.json`
+5. **Start the application:**
+   ```bash
+   # Terminal 1 - Backend
+   cd backend
+   npm run dev
+   
+   # Terminal 2 - Frontend
+   cd frontend
+   npm run dev
+   ```
 
-### Development
+The application will be available at:
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:3001`
 
-**Start both frontend and backend:**
-```bash
-npm run dev
-```
+## Configuration
 
-**Or start them separately:**
-```bash
-# Frontend only (http://localhost:8080)
-npm run dev:frontend
+### Required Environment Variables
 
-# Backend only (http://localhost:3001)
-npm run dev:backend
-```
-
-### Building
-
-```bash
-npm run build
-```
-
-## 🛠️ Tech Stack
-
-### Frontend
-- **React 18** - Modern React with hooks
-- **TypeScript** - Type-safe development
-- **Vite** - Fast build tool and dev server
-- **Tailwind CSS** - Utility-first CSS framework
-- **Radix UI** - Accessible component primitives
-- **Zustand** - Lightweight state management
-- **React Router** - Client-side routing
-- **Firebase SDK** - Authentication and database
-
-### Backend
-- **Node.js & Express.js** - Server framework
-- **Firebase Admin SDK** - Database and auth management
-- **Socket.io** - Real-time communication
-- **Google Gemini AI** - Advanced AI capabilities with key rotation
-- **SerpAPI** - Live travel data (flights, hotels, attractions)
-- **OpenWeatherMap** - Real-time weather information
-- **JWT** - Secure authentication tokens
-
-## 📊 API Endpoints
-
-### AI System
-- `POST /api/ai/v3/chat` - Main AI chat endpoint
-- `GET /api/ai/v3/health` - System health and performance
-- `GET /api/ai/v3/stats` - AI system statistics
-
-### User Management
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User authentication
-- `GET /api/users/profile` - User profile management
-
-### Matching & Messaging
-- `POST /api/swipes` - Travel companion matching
-- `GET /api/matches` - User matches
-- `POST /api/messages` - Real-time messaging
-
-## 🤖 AI System Architecture
-
-The AI system uses a sophisticated multi-agent approach:
-
-1. **Instant Classification** - Messages are quickly categorized (greeting, trip planning, etc.)
-2. **Immediate Feedback** - Users get instant responses while agents work in background
-3. **Parallel Processing** - Multiple agents gather data simultaneously
-4. **Smart Coordination** - ChatManager orchestrates all agents for cohesive results
-5. **Real-time Updates** - WebSocket notifications keep users informed of progress
-
-For detailed AI system documentation, see [`backend/README.md`](backend/README.md).
-
-## 📈 Performance & Monitoring
-
-- **Health Checks:** `GET /health` and `GET /api/ai/v3/health`
-- **Performance Testing:** `GET /api/ai/v3/performance-test`
-- **Real-time Metrics:** Comprehensive logging and status tracking
-- **API Key Monitoring:** Automatic rotation and usage tracking
-
-## 🏗️ Development Scripts
-
-```bash
-npm run dev              # Start both frontend and backend
-npm run dev:frontend     # Frontend development server
-npm run dev:backend      # Backend development server
-npm run build           # Build both applications
-npm run install:all     # Install all dependencies
-```
-
-## 🔧 Environment Configuration
-
-### Backend Environment Variables (.env)
 ```env
-# AI Services
+# Server Configuration
+NODE_ENV=development
+PORT=3001
+
+# AI Services (3 keys for rotation)
 GEMINI_API_KEY=your_primary_gemini_key
 GEMINI_API_KEY_BACKUP=your_backup_gemini_key
 GEMINI_API_KEY_BACKUP_2=your_third_gemini_key
@@ -195,48 +183,134 @@ GEMINI_API_KEY_BACKUP_2=your_third_gemini_key
 SERPAPI_API_KEY=your_serpapi_key
 OPENWEATHER_API_KEY=your_openweather_key
 
-# Firebase
+# Firebase Configuration
 FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH=/path/to/serviceAccountKey.json
+
+# Security
+JWT_SECRET=your_jwt_secret
+CORS_ORIGIN=http://localhost:5173
 ```
 
-### Frontend Environment Variables (.env.local)
-```env
-# API Configuration
-VITE_API_BASE_URL=http://localhost:3001/api
-VITE_SOCKET_URL=http://localhost:3001
+## API Endpoints
 
-# Firebase
-VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
+### AI Chat System
+- `POST /api/ai/v3/chat` - Main chat endpoint
+- `GET /api/ai/v3/health` - System health check
+- `GET /api/ai/v3/stats` - Performance statistics
+- `DELETE /api/ai/v3/conversation/:userId` - Clear conversation state
+
+### User Management
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login
+- `GET /api/users/profile` - Get user profile
+- `PUT /api/users/profile` - Update user profile
+
+### Matching System
+- `POST /api/swipes` - Swipe on another user
+- `GET /api/matches` - Get user matches
+- `POST /api/messages` - Send message
+- `GET /api/messages/:matchId` - Get conversation
+
+## AI System Architecture
+
+### Request Flow
+```
+User Message
+    ↓
+QuickResponseAIService
+    ↓
+ChatManagerAgent (classifies intent)
+    ↓
+    ├─→ Simple Greeting → Instant Response
+    │
+    ├─→ Trip Planning → Coordinate Specialists
+    │       ↓
+    │   ProfileAnalyst (preferences)
+    │   DataScout (live data)
+    │   ItineraryArchitect (itinerary)
+    │   ChiefTravelPlanner (compile)
+    │       ↓
+    │   Complete Travel Plan
+    │
+    └─→ General Question → Direct AI Response
 ```
 
-## 🚀 Production Deployment
+### Key Features
+- **Instant Responses** - Greetings and simple queries under 100ms
+- **Intelligent Classification** - Automatically routes to appropriate handler
+- **Background Processing** - Complex planning happens asynchronously
+- **Natural Conversation** - Maintains context across multiple messages
+- **Real-time Data** - Live flights, weather, and attraction information
+- **Personalization** - Tailored to user preferences and travel style
 
-1. **Build applications:** `npm run build`
-2. **Configure production environment variables**
-3. **Deploy backend:** Compatible with Node.js hosting (Heroku, Railway, etc.)
-4. **Deploy frontend:** Compatible with static hosting (Vercel, Netlify, etc.)
-5. **Configure Firebase production project**
+## Development Scripts
 
-## 🤝 Contributing
+### Backend
+```bash
+npm start              # Start production server
+npm run dev            # Start development server with auto-reload
+npm run test-firebase  # Test Firebase connection
+npm run clear-matches  # Clear all matches (development)
+npm run clear-messages # Clear all messages (development)
+npm run debug-db       # Database debugging utilities
+```
+
+### Frontend
+```bash
+npm run dev            # Start development server
+npm run build          # Build for production
+npm run preview        # Preview production build
+npm run lint           # Run ESLint
+```
+
+## Monitoring and Debugging
+
+### Health Checks
+- Server health: `GET /health`
+- AI system health: `GET /api/ai/v3/health`
+- Performance test: `GET /api/ai/v3/performance-test`
+
+### Debug Endpoints
+- `DELETE /api/ai/v3/debug/clear-state/:userId` - Force clear user state
+- `GET /api/ai/v3/stats` - Detailed system statistics
+
+## Production Deployment
+
+### Environment Setup
+- Set `NODE_ENV=production`
+- Use production Firebase project
+- Configure proper CORS origins
+- Set up API key rotation with paid tiers
+
+### Performance Considerations
+- System optimized for fast responses
+- API key rotation prevents quota limits
+- WebSocket connections for real-time updates
+- Efficient conversation state management
+
+### Security
+- JWT-based authentication
+- Helmet security headers
+- Rate limiting on API endpoints
+- Input validation and sanitization
+
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test thoroughly (both frontend and AI system)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## 📄 License
+## License
 
-MIT License - see LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🔗 Related Documentation
+## Support
 
-- **Backend AI System:** [`backend/README.md`](backend/README.md) - Detailed AI architecture documentation
-- **API Documentation:** Available at `/health` and `/api/ai/v3/health` endpoints
-- **Firebase Setup:** Configure using `firebase.json` and `firestore.rules`
+For support and questions, please open an issue in the repository or contact the development team.
 
 ---
 
-**Built with ❤️ for travelers who want intelligent trip planning and meaningful connections.**
+Built for travelers who want to explore the world together.

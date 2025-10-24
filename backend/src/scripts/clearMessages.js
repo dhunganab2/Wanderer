@@ -1,16 +1,17 @@
 // Clear all fake messages and conversations from Firebase
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import 'dotenv/config';
 
-// Firebase configuration
+// Firebase configuration from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyCh-VRUsmkM61tSuxu6NaKhQDhIJTt3HNo",
-  authDomain: "wanderer-8ecac.firebaseapp.com",
-  projectId: "wanderer-8ecac",
-  storageBucket: "wanderer-8ecac.firebasestorage.app",
-  messagingSenderId: "441088789276",
-  appId: "1:441088789276:web:5922cf14a6a5be961808d9",
-  measurementId: "G-0M8HXZPRH8"
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);

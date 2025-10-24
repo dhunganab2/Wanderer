@@ -33,10 +33,10 @@ OUTPUT REQUIREMENTS:
 
     super('DataScout', 'Logistics & Data Retrieval Expert', systemPrompt);
 
-    // API configurations with better key validation
+    // API configurations - NO hardcoded fallback keys for security
     this.apiKeys = {
-      serpapi: process.env.SERPAPI_API_KEY || '5af305829c76aed0a9717b14441ce950b69651920d9c4024b74b4f642cb2db00',
-      openweather: process.env.OPENWEATHER_API_KEY || '9cc22d1a8677ceee7ecd450b6531027b',
+      serpapi: process.env.SERPAPI_API_KEY,
+      openweather: process.env.OPENWEATHER_API_KEY,
       rapidapi: process.env.RAPIDAPI_KEY
     };
 
