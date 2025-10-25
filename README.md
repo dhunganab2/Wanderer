@@ -1,58 +1,54 @@
-# Wanderer - AI-Powered Travel Companion Matching App
+# Wanderer – Find Your Perfect Travel Buddy
 
-A modern travel companion matching application with advanced AI trip planning capabilities, built with React, Node.js, and Firebase.
+Wanderer connects travelers worldwide through intelligent matching and AI-powered trip planning. Swipe, chat, and explore the world with like-minded adventurers.
 
-## 🌟 Key Features
+## ✨ What Makes Wanderer Special
 
-### Core App Features
-- 🔐 **User Authentication** - Firebase-based secure authentication
-- 🎯 **Smart Matching** - Swipe-based travel companion matching system
-- 💬 **Real-time Messaging** - Socket.io powered chat for matched users
-- 📱 **Responsive Design** - Modern UI with Tailwind CSS and Radix UI
+**Smart Travel Matching** – Our advanced algorithm finds compatible travel companions based on interests, travel style, and destination preferences.
 
-### 🤖 Advanced AI Travel Planning System
-- ⚡ **Instant Responses** - Lightning-fast greetings and interactions (<100ms)
-- 🧠 **Multi-Agent AI Architecture** - Specialized AI agents working together:
-  - **ChatManager** - Main conversation interface and coordination
-  - **DataScout** - Live travel data gathering (flights, hotels, weather)
-  - **ChiefTravelPlanner** - Comprehensive trip planning and itineraries
-  - **ProfileAnalyst** - Personalized recommendations based on user preferences
-  - **ItineraryArchitect** - Detailed day-by-day travel plans
+**AI Travel Assistant** – Get personalized trip recommendations, detailed itineraries, and real-time travel data powered by multiple specialized AI agents.
 
-### 🔧 AI System Features
-- 🔄 **API Key Rotation** - Intelligent rotation across multiple Gemini API keys
-- 📊 **Real-time Status Updates** - Live progress tracking via WebSocket
-- 💾 **Conversation Memory** - Persistent conversation state management
-- 🎯 **Personalization** - AI-powered suggestions based on user profiles
-- 🛡️ **Graceful Fallbacks** - Continues working even when AI services are limited
+**Seamless Communication** – Chat with your matches instantly through our real-time messaging system.
 
-## 📁 Project Structure
+**Live Travel Intelligence** – Access up-to-date information about flights, accommodations, weather, and local attractions.
 
-```
-wanderer/
-├── frontend/                    # React frontend application
-│   ├── src/
-│   │   ├── components/         # Reusable UI components
-│   │   ├── pages/             # Application pages/routes
-│   │   ├── services/          # API services and utilities
-│   │   ├── store/             # State management (Zustand)
-│   │   └── types/             # TypeScript type definitions
-│   ├── public/                # Static assets
-│   └── package.json           # Frontend dependencies
-├── backend/                     # Node.js backend API with AI system
-│   ├── src/
-│   │   ├── ai-agents/         # Advanced AI system
-│   │   │   ├── agents/        # Individual AI agents
-│   │   │   ├── utils/         # Shared AI utilities
-│   │   │   └── services/      # AI orchestration services
-│   │   ├── controllers/       # API controllers
-│   │   ├── routes/           # Express routes
-│   │   ├── services/         # Business logic
-│   │   └── models/           # Data models
-│   └── README.md             # Detailed backend documentation
-├── firebase.json              # Firebase configuration
-├── firestore.rules           # Database security rules
-└── package.json              # Root workspace configuration
-```
+## 🛠️ Built With
 
+**Frontend:** React, TypeScript, Tailwind CSS  
+**Backend:** Node.js, Express, Socket.io  
+**AI:** Google Gemini, SerpAPI, OpenWeatherMap  
+**Database:** Firebase Firestore  
+**Authentication:** Firebase Auth  
 
+## 🚀 Quick Start
+
+1. **Clone and install:**
+   ```bash
+   git clone <repository-url>
+   cd wanderer
+   npm install && cd backend && npm install && cd ../frontend && npm install
+   ```
+
+2. **Follow the setup guide:**
+   See [SETUP.md](./SETUP.md) for detailed configuration instructions.
+
+3. **Start the application:**
+   ```bash
+   npm run dev
+   ```
+
+**Access the app:**
+- Frontend: `http://localhost:8083`
+- Backend: `http://localhost:3001`
+
+## 🤝 Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request or open an issue for any bugs or feature requests.
+
+## 👥 Developers
+
+**Developed by:** Bijay and Jaljala
+
+## 📄 License
+
+This project is licensed under the MIT License.

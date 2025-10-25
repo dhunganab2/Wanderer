@@ -43,11 +43,11 @@ OUTPUT REQUIREMENTS:
 
     let analysis;
     try {
-      const jsonMatch = analysisResult.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in analysis');
+      // Use the parseAIResponse method from BaseAgent
+      analysis = this.parseAIResponse(analysisResult);
+
+      if (!analysis) {
+        throw new Error('Failed to parse AI response');
       }
     } catch (error) {
       console.warn('Failed to parse ProfileAnalyst JSON, using fallback');
@@ -63,52 +63,6 @@ OUTPUT REQUIREMENTS:
     };
 
     return this.results;
-  }
-
-  /**
-   * Generate activity recommendations based on profile
-   */
-  async generateActivityRecommendations(userProfile, destination, duration) {
-    this.updateStatus('working', 'Generating personalized activity recommendations');
-
-    const recommendationPrompt = this.buildRecommendationPrompt(userProfile, destination, duration);
-    const recommendations = await this.callGemini(recommendationPrompt);
-
-    this.updateStatus('completed', 'Generated personalized activity recommendations');
-
-    return {
-      type: 'activity_recommendations',
-      recommendations,
-      basedOn: {
-        interests: userProfile.interests,
-        travelStyle: userProfile.travelStyle,
-        destination,
-        duration
-      }
-    };
-  }
-
-  /**
-   * Analyze group compatibility (for group trips)
-   */
-  async analyzeGroupCompatibility(travelerProfiles) {
-    if (!travelerProfiles || travelerProfiles.length <= 1) {
-      return { type: 'solo_analysis', message: 'Solo travel analysis' };
-    }
-
-    this.updateStatus('working', 'Analyzing group travel compatibility');
-
-    const compatibilityPrompt = this.buildGroupCompatibilityPrompt(travelerProfiles);
-    const compatibilityAnalysis = await this.callGemini(compatibilityPrompt);
-
-    this.updateStatus('completed', 'Completed group compatibility analysis');
-
-    return {
-      type: 'group_compatibility',
-      analysis: compatibilityAnalysis,
-      groupSize: travelerProfiles.length,
-      travelerCount: travelerProfiles.length
-    };
   }
 
   /**
@@ -164,61 +118,6 @@ Base your analysis on psychological insights and travel behavior patterns.`;
   }
 
   /**
-   * Build activity recommendation prompt
-   */
-  buildRecommendationPrompt(userProfile, destination, duration) {
-    return `${this.systemPrompt}
-
-USER PROFILE:
-${this.buildUserProfileString(userProfile)}
-
-TRIP DETAILS:
-- Destination: ${destination}
-- Duration: ${duration}
-
-TASK:
-Generate specific activity recommendations that perfectly match this traveler's profile.
-
-Consider:
-- Their interests and travel style
-- The destination's unique offerings
-- Duration constraints
-- Their experience level and preferences
-
-Provide 8-12 specific activity recommendations with brief explanations of why each suits them.
-Focus on authentic experiences that align with their personality.
-
-Format as a natural, conversational list of recommendations.`;
-  }
-
-  /**
-   * Build group compatibility prompt
-   */
-  buildGroupCompatibilityPrompt(travelerProfiles) {
-    const profileStrings = travelerProfiles.map((profile, index) =>
-      `TRAVELER ${index + 1}:\n${this.buildUserProfileString(profile)}`
-    ).join('\n\n');
-
-    return `${this.systemPrompt}
-
-ANALYZE GROUP TRAVEL COMPATIBILITY:
-
-${profileStrings}
-
-ANALYSIS TASK:
-Analyze how well this group would travel together and provide insights for planning.
-
-Consider:
-- Shared interests and compatible travel styles
-- Potential areas of conflict or different preferences
-- How to balance different needs and interests
-- Group dynamics and decision-making considerations
-- Activity recommendations that work for everyone
-
-Provide practical insights for creating a harmonious group travel experience.`;
-  }
-
-  /**
    * Create fallback analysis when JSON parsing fails
    */
   createFallbackAnalysis(userProfile, tripContext) {
@@ -265,53 +164,4 @@ Provide practical insights for creating a harmonious group travel experience.`;
     };
   }
 
-  /**
-   * Helper method to build user profile string
-   */
-  buildUserProfileString(userProfile) {
-    const parts = [];
-
-    if (userProfile.name) parts.push(`Name: ${userProfile.name}`);
-    if (userProfile.age) parts.push(`Age: ${userProfile.age}`);
-    if (userProfile.location) parts.push(`Location: ${userProfile.location}`);
-    if (userProfile.interests && userProfile.interests.length > 0) {
-      parts.push(`Interests: ${userProfile.interests.join(', ')}`);
-    }
-    if (userProfile.travelStyle && userProfile.travelStyle.length > 0) {
-      parts.push(`Travel Style: ${userProfile.travelStyle.join(', ')}`);
-    }
-    if (userProfile.bucketList && userProfile.bucketList.length > 0) {
-      parts.push(`Bucket List: ${userProfile.bucketList.slice(0, 5).join(', ')}`);
-    }
-    if (userProfile.travelExperience) {
-      parts.push(`Travel Experience: ${userProfile.travelExperience}`);
-    }
-    if (userProfile.preferredBudget) {
-      parts.push(`Budget Preference: ${userProfile.preferredBudget}`);
-    }
-
-    return parts.join('\n');
-  }
-
-  /**
-   * Execute method - handles different types of profile analysis tasks
-   */
-  async execute(input, context = {}) {
-    const { action, userProfile, tripContext, travelerProfiles, destination, duration } = input;
-
-    switch (action) {
-      case 'analyze_profile':
-        return await this.analyzeProfile(userProfile, tripContext);
-
-      case 'generate_activity_recommendations':
-        return await this.generateActivityRecommendations(userProfile, destination, duration);
-
-      case 'analyze_group_compatibility':
-        return await this.analyzeGroupCompatibility(travelerProfiles);
-
-      default:
-        // Default to profile analysis
-        return await this.analyzeProfile(userProfile, tripContext);
-    }
-  }
 }

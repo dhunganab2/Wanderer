@@ -6,8 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Calendar, Users } from 'lucide-react';
 
-// Google Maps API Key
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAVIIZtA7T_OxT0ar3SFxNWcjkge7qs6g4';
+// Google Maps API Key from environment variables
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 /**
  * Travel Map Page - Map with active travelers list

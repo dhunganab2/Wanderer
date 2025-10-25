@@ -5,6 +5,9 @@
  */
 import BaseAgent from './BaseAgent.js';
 import DataScoutAgent from './DataScoutAgent.js';
+import ProfileAnalystAgent from './ProfileAnalystAgent.js';
+import ItineraryArchitectAgent from './ItineraryArchitectAgent.js';
+import ChiefTravelPlannerAgent from './ChiefTravelPlannerAgent.js';
 
 export default class ChatManagerAgent extends BaseAgent {
   constructor(agentRegistry = {}) {
@@ -42,9 +45,14 @@ RESPONSE STYLE:
 Remember: You are the ONLY agent users interact with. Other agents work behind the scenes.`;
 
     super('ChatManager', 'Main User Interface & Agent Coordinator', systemPrompt);
-    
-    // Initialize DataScout agent for real data fetching
+
+    // Initialize all specialist agents
+    this.profileAnalyst = new ProfileAnalystAgent();
     this.dataScout = new DataScoutAgent();
+    this.itineraryArchitect = new ItineraryArchitectAgent();
+    this.chiefPlanner = new ChiefTravelPlannerAgent();
+
+    console.log('✅ ChatManager: All specialist agents initialized');
 
     this.agentRegistry = agentRegistry;
     this.conversationStates = new Map();
@@ -443,505 +451,77 @@ Generate a personalized greeting that makes them feel excited about planning the
   }
 
   /**
-   * Coordinate specialist agents with detailed thinking updates - AI-powered
+   * Coordinate specialist agents with detailed thinking updates - REFACTORED to use actual agents
    */
   async coordinateAgents(tripDetails, userContext, progressCallback) {
-    // ProfileAnalyst work - AI-powered
+    console.log('🎯 ChatManager: Starting multi-agent coordination...');
+
+    // STEP 1: ProfileAnalyst Agent - Analyze user profile and preferences
     progressCallback(15, "🧠 Thinking about your travel preferences...", true, "ProfileAnalyst agent initializing - analyzing user profile for travel personality");
     progressCallback(25, "🧠 Analyzing your travel style...", false, "ProfileAnalyst: Examining interests, previous trips, and preferences");
 
-    const profile = await this.aiProfileAnalysis(userContext.userProfile, tripDetails);
+    const profile = await this.profileAnalyst.analyzeProfile(userContext.userProfile, {
+      destination: tripDetails.destination,
+      duration: tripDetails.duration,
+      tripType: tripDetails.tripType || 'leisure'
+    });
+
+    console.log('✅ ProfileAnalyst completed:', profile.travelPersonality);
     progressCallback(35, "✅ Got your travel personality mapped!", false, "ProfileAnalyst: Completed personality analysis - identified as " + profile.travelPersonality);
 
-    // DataScout work - Real API-powered
+    // STEP 2: DataScout Agent - Gather real-time travel data
     progressCallback(40, "🧠 Thinking about the best options for your trip...", true, "DataScout agent starting - researching live data for " + tripDetails.destination);
     progressCallback(50, "🔍 Scouting the best flights, hotels, and local info...", false, "DataScout: Fetching weather, accommodation, and transportation data");
 
-    const data = await this.aiDataGathering(tripDetails.destination, tripDetails.duration, tripDetails.departureCity, tripDetails.budgetPreference);
-    
-    // Only show success if we actually got real data
+    const data = await this.dataScout.gatherTravelData(
+      tripDetails.destination,
+      {
+        duration: tripDetails.duration,
+        departureCity: tripDetails.departureCity || 'New York',
+        budget: tripDetails.budgetPreference || 'Mid-range',
+        interests: profile.primaryInterests || userContext.userProfile.interests || []
+      }
+    );
+
+    console.log('✅ DataScout completed:', data.summary || 'Data gathered');
+
+    // Show success message based on data quality
     if (data && (data.attractions?.length > 0 || data.restaurants?.length > 0 || data.transportation?.flights)) {
       progressCallback(60, "✅ Found amazing options for you!", false, "DataScout: Collected comprehensive destination data and pricing");
     } else {
       progressCallback(60, "⚠️ Using fallback data for planning...", false, "DataScout: Fallback data used due to API limitations");
     }
 
-    // ItineraryArchitect work - AI-powered
+    // STEP 3: ItineraryArchitect Agent - Design personalized itinerary
     progressCallback(65, "🧠 Thinking about the perfect itinerary structure...", true, "ItineraryArchitect agent starting - designing custom itinerary framework");
     progressCallback(75, "🎨 Crafting your perfect day-by-day adventure...", false, "ItineraryArchitect: Creating " + tripDetails.duration + " itinerary with personalized activities");
 
-    const itinerary = await this.aiItineraryCreation(tripDetails, userContext.userProfile, profile);
-    
-    // Only show success if we actually got a real itinerary
-    if (itinerary && (itinerary.dailyPlans || itinerary.days) && ((itinerary.dailyPlans && itinerary.dailyPlans.length > 0) || (itinerary.days && itinerary.days.length > 0))) {
+    const itinerary = await this.itineraryArchitect.designItinerary(tripDetails, profile, data);
+
+    console.log('✅ ItineraryArchitect completed:', itinerary.summary || 'Itinerary designed');
+
+    // Show success message based on itinerary quality
+    if (itinerary && (itinerary.daily_plans || itinerary.days) && ((itinerary.daily_plans && itinerary.daily_plans.length > 0) || (itinerary.days && itinerary.days.length > 0))) {
       progressCallback(85, "✅ Your perfect itinerary is taking shape!", false, "ItineraryArchitect: Completed " + tripDetails.duration + " detailed itinerary");
     } else {
       progressCallback(85, "✅ Building itinerary with comprehensive travel data...", false, "ItineraryArchitect: Assembling " + tripDetails.duration + " detailed plan from collected data");
     }
 
-    // Final compilation - AI-powered
-    progressCallback(90, "🧠 Bringing everything together...", true, "ChatManager: Compiling all agent results into comprehensive plan");
-    progressCallback(95, "📋 Putting the finishing touches...", false, "ChatManager: Final formatting and presentation preparation");
+    // STEP 4: ChiefTravelPlanner Agent - Compile final comprehensive plan
+    progressCallback(90, "🧠 Bringing everything together...", true, "ChiefTravelPlanner: Compiling all agent results into comprehensive plan");
+    progressCallback(95, "📋 Putting the finishing touches...", false, "ChiefTravelPlanner: Final formatting and presentation preparation");
 
-    // Compile final plan with AI-generated content
-    const finalPlan = await this.aiCompileFinalPlan(tripDetails, { profile, data, itinerary }, userContext);
+    const agentResults = {
+      ProfileAnalyst: profile,
+      DataScout: data,
+      ItineraryArchitect: itinerary
+    };
+
+    const finalPlan = await this.chiefPlanner.coordinatePlanCreation(tripDetails, agentResults);
+
+    console.log('✅ ChiefTravelPlanner completed: Final plan compiled');
 
     return finalPlan;
-  }
-
-  /**
-   * AI-powered profile analysis
-   */
-  async aiProfileAnalysis(userProfile, tripDetails) {
-    try {
-      const prompt = `You are a ProfileAnalyst agent specializing in travel personality analysis. Analyze this user's profile and create a comprehensive travel personality assessment.
-
-USER PROFILE:
-- Name: ${userProfile.name || 'Unknown'}
-- Interests: ${userProfile.interests?.join(', ') || 'Not specified'}
-- Travel Style: ${userProfile.travelStyle?.join(', ') || 'Not specified'}
-- Bucket List: ${userProfile.bucketList?.join(', ') || 'Not specified'}
-
-TRIP CONTEXT:
-- Destination: ${tripDetails.destination}
-- Duration: ${tripDetails.duration}
-
-ANALYSIS TASK:
-Provide a comprehensive travel personality analysis in this JSON format. Return ONLY valid JSON without any markdown formatting or code blocks:
-
-{
-  "travelPersonality": "Adventure Seeker|Culture Enthusiast|Luxury Explorer|Budget Explorer|Wellness Seeker",
-  "travelStyle": ["adventure", "culture", "budget", "luxury"],
-  "interests": ["specific interests based on profile"],
-  "preferences": {
-    "accommodationStyle": "luxury hotels|mid-range hotels|hostels and budget hotels",
-    "activityLevel": "high-energy|moderate|relaxed",
-    "diningStyle": "foodie experiences|local cuisine|budget dining",
-    "culturalInterest": "high|moderate|low"
-  },
-  "recommendations": {
-    "bestTimeToVisit": "specific recommendations",
-    "accommodationType": "specific recommendations",
-    "budgetRange": "specific budget range per day"
-  }
-}
-
-Focus on creating a personalized assessment that will guide the itinerary creation.`;
-
-      const response = await this.callGemini(prompt);
-      const parsedResponse = this.parseAIResponse(response);
-      
-      if (!parsedResponse) {
-        throw new Error('Failed to parse AI response as JSON');
-      }
-      
-      return parsedResponse;
-    } catch (error) {
-      console.error('AI Profile Analysis error:', error);
-      return {
-        travelPersonality: 'Culture Enthusiast',
-        travelStyle: userProfile.travelStyle || ['culture'],
-        interests: userProfile.interests || ['sightseeing'],
-        preferences: {
-          accommodationStyle: 'mid-range hotels',
-          activityLevel: 'moderate',
-          diningStyle: 'local cuisine',
-          culturalInterest: 'high'
-        },
-        recommendations: {
-          bestTimeToVisit: 'Based on weather patterns',
-          accommodationType: '3-4 star hotels',
-          budgetRange: '$100-200/day'
-        }
-      };
-    }
-  }
-
-  /**
-   * Legacy simulate methods (kept for fallback)
-   */
-  async simulateProfileAnalysis(userProfile) {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        const personality = this.determineTravelPersonality(userProfile);
-        const interests = userProfile.interests || ['culture', 'food', 'sightseeing'];
-        const travelStyle = userProfile.travelStyle || ['moderate'];
-
-        resolve({
-          travelPersonality: personality,
-          interests: interests,
-          travelStyle: travelStyle,
-          preferences: {
-            accommodationStyle: personality.includes('Luxury') ? 'luxury hotels' : personality.includes('Budget') ? 'hostels and budget hotels' : 'mid-range hotels',
-            activityLevel: travelStyle.includes('adventure') ? 'high-energy' : 'moderate',
-            diningStyle: interests.includes('food') ? 'foodie experiences' : 'local cuisine',
-            culturalInterest: interests.includes('culture') ? 'high' : 'moderate'
-          },
-          recommendations: {
-            bestTimeToVisit: 'Based on your preferences and weather patterns',
-            accommodationType: personality.includes('Luxury') ? '4-5 star hotels' : '3-4 star hotels',
-            budgetRange: personality.includes('Budget') ? '$50-100/day' : personality.includes('Luxury') ? '$200-400/day' : '$100-200/day'
-          }
-        });
-      }, 1000);
-    });
-  }
-
-  /**
-   * AI-powered data gathering using real DataScout agent with SERP API
-   */
-  async aiDataGathering(destination, duration, departureCity = 'New York', budgetPreference = 'Mid-range') {
-    try {
-      console.log(`🔍 Starting real data gathering for ${destination} using DataScout agent...`);
-      console.log(`   Departure city: ${departureCity}, Budget preference: ${budgetPreference}`);
-      
-      // Use DataScout agent to gather all data in parallel with better error handling
-      console.log('🚀 Starting parallel API calls for comprehensive data...');
-
-      const [flightData, hotelData, attractionData, restaurantData, weatherData] = await Promise.allSettled([
-        this.dataScout.getFlightData(destination, departureCity).then(data => {
-          console.log('✅ Flight data received:', Array.isArray(data) ? data.length : 'invalid format');
-          return data;
-        }).catch(e => {
-          console.log('❌ Flight data failed:', e.message);
-          return [];
-        }),
-
-        this.dataScout.getHotelData(destination, null, duration).then(data => {
-          console.log('✅ Hotel data received:', Array.isArray(data) ? data.length : 'invalid format');
-          return data;
-        }).catch(e => {
-          console.log('❌ Hotel data failed:', e.message);
-          return [];
-        }),
-
-        this.dataScout.getAttractionData(destination).then(data => {
-          console.log('✅ Attraction data received:', Array.isArray(data) ? data.length : 'invalid format');
-          return data;
-        }).catch(e => {
-          console.log('❌ Attraction data failed:', e.message);
-          return [];
-        }),
-
-        this.dataScout.getRestaurantData(destination).then(data => {
-          console.log('✅ Restaurant data received:', data?.restaurants?.length || 0, 'restaurants');
-          return data;
-        }).catch(e => {
-          console.log('❌ Restaurant data failed:', e.message);
-          return { restaurants: [] };
-        }),
-
-        this.dataScout.getWeatherData(destination).then(data => {
-          console.log('✅ Weather data received:', data?.current ? 'success' : 'incomplete');
-          return data;
-        }).catch(e => {
-          console.log('❌ Weather data failed:', e.message);
-          return null;
-        })
-      ]);
-
-      // Process results with proper error handling
-      const processResult = (result, fallback) => {
-        if (result.status === 'fulfilled' && result.value) {
-          return result.value;
-        }
-        console.log('Using fallback for failed result:', result.reason?.message || 'Unknown error');
-        return fallback;
-      };
-
-      const flights = processResult(flightData, []);
-      const hotels = processResult(hotelData, []);
-      const attractions = processResult(attractionData, []);
-      const restaurants = processResult(restaurantData, { restaurants: [] });
-      const weather = processResult(weatherData, null);
-
-      // Create comprehensive data structure matching expected format
-      const comprehensiveData = {
-        weather: weather,
-        departureCity: departureCity,
-        budgetPreference: budgetPreference,
-        transportation: {
-          flights: flights,
-          localTransport: 'Public transport and taxis available',
-          budgetInfo: {
-            transport: '$15-25/day',
-            flights: flights.length > 0 ? flights[0].price : '$600-1200'
-          }
-        },
-        accommodation: {
-          hotels: hotels,
-          budgetInfo: {
-            accommodation: '$80-150/day'
-          }
-        },
-        attractions: attractions,
-        restaurants: restaurants.restaurants || [],
-        budgetInfo: {
-          accommodation: '$80-150/day',
-          food: restaurants.budgetInfo?.food || '$40-60/day',
-          transport: '$15-25/day',
-          activities: '$25-40/day'
-        },
-        safetyInfo: 'Generally safe with normal precautions',
-        culturalTips: ['Research local customs', 'Learn basic local phrases'],
-        dataSource: 'live_apis',
-        timestamp: new Date().toISOString()
-      };
-
-      console.log(`✅ Final comprehensive data for ${destination}:`, {
-        flights: flights.length,
-        hotels: hotels.length,
-        attractions: attractions.length,
-        restaurants: comprehensiveData.restaurants.length,
-        weather: weather ? 'available' : 'unavailable'
-      });
-      
-      return comprehensiveData;
-    } catch (error) {
-      console.error('Real Data Gathering error:', error);
-      
-      // Fallback to AI-generated data if real APIs fail
-      try {
-        const prompt = `You are a DataScout agent specializing in destination research. Provide comprehensive travel data for ${destination} for a ${duration} trip.
-
-RESEARCH TASK:
-Create detailed travel information in this JSON format. Return ONLY valid JSON without any markdown formatting or code blocks:
-
-{
-  "weather": {
-    "current": "current weather conditions",
-    "forecast": "7-day weather forecast",
-    "bestTime": "best time to visit recommendations"
-  },
-  "transportation": {
-    "flights": {
-      "priceRange": "typical flight price range",
-      "airlines": ["major airlines serving this destination"],
-      "duration": "typical flight duration"
-    },
-    "localTransport": "best local transportation options"
-  },
-  "accommodation": {
-    "hotels": [
-      {
-        "name": "hotel name",
-        "rating": 4,
-        "location": "area/neighborhood",
-        "price": "price range per night"
-      }
-    ],
-    "neighborhoods": ["recommended areas to stay"]
-  },
-  "attractions": ["must-see attractions"],
-  "restaurants": [
-    {
-      "name": "restaurant name",
-      "cuisine": "type of cuisine",
-      "location": "area",
-      "specialty": "signature dish"
-    }
-  ],
-  "budgetInfo": {
-    "accommodation": "daily accommodation budget",
-    "food": "daily food budget",
-    "transport": "daily transport budget",
-    "activities": "daily activities budget"
-  },
-  "safetyInfo": "safety tips",
-  "culturalTips": ["cultural etiquette and local customs"]
-}
-
-Provide realistic, helpful information for trip planning.`;
-
-        const response = await this.callGemini(prompt);
-        const parsedResponse = this.parseAIResponse(response);
-        
-        if (!parsedResponse) {
-          throw new Error('Failed to parse AI response as JSON');
-        }
-        
-        console.log(`🔄 Fallback to AI-generated data for ${destination}`);
-        return parsedResponse;
-      } catch (aiError) {
-        console.error('AI Data Gathering fallback error:', aiError);
-        return {
-          weather: { current: 'Pleasant conditions', forecast: 'Favorable weather', bestTime: 'Year-round destination' },
-          transportation: { flights: { priceRange: '$600-1200', airlines: ['Various'], duration: '8-12 hours' }, localTransport: 'Public transport available' },
-          accommodation: { hotels: [{ name: 'City Center Hotel', rating: 4, location: 'Downtown', price: '$120-180/night' }], neighborhoods: ['City Center'] },
-          attractions: ['Main landmark', 'Historic district'],
-          restaurants: [{ name: 'Local Favorite', cuisine: 'Local', location: 'City Center', specialty: 'Regional dishes' }],
-          budgetInfo: { accommodation: '$80-150/day', food: '$40-60/day', transport: '$15-25/day', activities: '$25-40/day' },
-          safetyInfo: 'Generally safe with normal precautions',
-          culturalTips: ['Research local customs']
-        };
-      }
-    }
-  }
-
-  /**
-   * Simulate comprehensive data gathering (replace with actual DataScout later)
-   */
-  async simulateDataGathering(destination) {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        const destinationData = this.getDestinationData(destination);
-
-        resolve({
-          weather: {
-            current: `Current weather in ${destination}: ${destinationData.weather}`,
-            forecast: `7-day forecast: ${destinationData.forecast}`,
-            bestTime: destinationData.bestTime
-          },
-          transportation: {
-            flights: {
-              priceRange: destinationData.flightPrices,
-              airlines: destinationData.airlines,
-              duration: destinationData.flightDuration
-            },
-            localTransport: destinationData.localTransport,
-            tips: destinationData.transportTips
-          },
-          accommodation: {
-            hotels: destinationData.hotels,
-            neighborhoods: destinationData.neighborhoods,
-            priceRanges: destinationData.hotelPrices
-          },
-          attractions: destinationData.attractions,
-          restaurants: destinationData.restaurants,
-          budgetInfo: destinationData.budgetBreakdown,
-          safetyInfo: destinationData.safety,
-          culturalTips: destinationData.cultural
-        });
-      }, 1500);
-    });
-  }
-
-  /**
-   * AI-powered itinerary creation
-   */
-  async aiItineraryCreation(tripDetails, userProfile, profile) {
-    try {
-      const days = parseInt(tripDetails.duration) || 5;
-      const destination = tripDetails.destination;
-      
-      const prompt = `You are an ItineraryArchitect agent. Create a detailed ${days}-day itinerary for ${destination} based on this user profile and analysis.
-
-USER PROFILE:
-- Name: ${userProfile.name || 'Traveler'}
-- Interests: ${userProfile.interests?.join(', ') || 'General sightseeing'}
-- Travel Style: ${profile.travelStyle?.join(', ') || 'Moderate'}
-- Travel Personality: ${profile.travelPersonality}
-
-TRIP DETAILS:
-- Destination: ${destination}
-- Duration: ${days} days
-- Travelers: ${tripDetails.travelers.join(', ')}
-
-ITINERARY TASK:
-Create a comprehensive itinerary in this JSON format. Return ONLY valid JSON without any markdown formatting or code blocks:
-
-{
-  "duration": "${days} days",
-  "destination": "${destination}",
-  "dailyPlans": [
-    {
-      "day": 1,
-      "title": "Day 1: Arrival and City Introduction",
-      "activities": [
-        {
-          "time": "10:00",
-          "name": "Arrival and Check-in",
-          "location": "Hotel",
-          "description": "Settle in and get oriented",
-          "duration": "2 hours",
-          "cost": "Included in accommodation"
-        }
-      ]
-    }
-  ],
-  "highlights": ["key highlights of the trip"],
-  "recommendations": {
-    "packingList": ["essential items to pack"],
-    "travelTips": ["helpful travel tips"],
-    "budgetBreakdown": {
-      "accommodation": "total accommodation cost",
-      "meals": "total food cost",
-      "transportation": "total transport cost",
-      "activities": "total activities cost"
-    }
-  }
-}
-
-Make it personalized to the user's interests and travel style. Include realistic timing, locations, and costs.`;
-
-      const response = await this.callGemini(prompt);
-      const parsedResponse = this.parseAIResponse(response);
-      
-      if (!parsedResponse) {
-        throw new Error('Failed to parse AI response as JSON');
-      }
-      
-      return parsedResponse;
-    } catch (error) {
-      console.error('AI Itinerary Creation error:', error);
-      const days = parseInt(tripDetails.duration) || 5;
-      return {
-        duration: `${days} days`,
-        destination: tripDetails.destination,
-        dailyPlans: Array.from({ length: days }, (_, i) => ({
-          day: i + 1,
-          title: `Day ${i + 1}: ${i === 0 ? 'Arrival and Orientation' : i === days - 1 ? 'Departure Day' : 'Exploring the City'}`,
-          activities: [
-            {
-              time: i === 0 ? '10:00' : '09:00',
-              name: i === 0 ? 'Arrival and Check-in' : i === days - 1 ? 'Departure' : 'Morning Activity',
-              location: i === 0 ? 'Hotel' : 'City Center',
-              description: i === 0 ? 'Settle in and get oriented' : i === days - 1 ? 'Check out and depart' : 'Explore local attractions',
-              duration: '2-3 hours',
-              cost: i === 0 ? 'Included' : '$20-40'
-            }
-          ]
-        })),
-        highlights: ['Main attractions', 'Local culture', 'Authentic experiences'],
-        recommendations: {
-          packingList: ['Comfortable walking shoes', 'Weather-appropriate clothing', 'Universal adapter'],
-          travelTips: ['Download offline maps', 'Learn basic local phrases', 'Keep copies of important documents'],
-          budgetBreakdown: {
-            accommodation: `$${100 * days} - $${200 * days}`,
-            meals: `$${50 * days} - $${80 * days}`,
-            transportation: `$${20 * days} - $${40 * days}`,
-            activities: `$${30 * days} - $${60 * days}`
-          }
-        }
-      };
-    }
-  }
-
-  /**
-   * Simulate comprehensive itinerary creation (replace with actual ItineraryArchitect later)
-   */
-  async simulateItineraryCreation(tripDetails, userProfile) {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        const days = parseInt(tripDetails.duration) || 5;
-        const destination = tripDetails.destination;
-        const interests = userProfile.interests || ['sightseeing'];
-
-        const dailyItinerary = this.generateSampleItinerary(destination, days, interests);
-
-        resolve({
-          duration: `${days} days`,
-          destination: destination,
-          dailyPlans: dailyItinerary,
-          highlights: this.generateHighlights(destination, interests),
-          recommendations: {
-            packingList: this.generatePackingList(destination),
-            travelTips: this.generateTravelTips(destination),
-            budgetBreakdown: this.generateBudgetBreakdown(destination, days)
-          }
-        });
-      }, 2000);
-    });
   }
 
   /**
@@ -1475,216 +1055,6 @@ Ready to make this happen? I can help you with next steps for booking! 🚀`;
   }
 
   /**
-   * AI-powered final plan compilation
-   */
-  async aiCompileFinalPlan(tripDetails, results, userContext) {
-    try {
-      // Determine the budget to use for planning
-      const totalBudget = tripDetails.budget || null;
-      const budgetCategory = tripDetails.budgetPreference || 'Mid-range';
-      const budgetInfo = totalBudget
-        ? `Total budget: $${totalBudget} USD (${budgetCategory} tier)`
-        : `Budget tier: ${budgetCategory} (no specific amount provided)`;
-
-      const prompt = `You are the ChiefTravelPlanner agent. Compile all the specialist agent results into a comprehensive, engaging trip plan.
-
-TRIP DETAILS:
-- Destination: ${tripDetails.destination}
-- Duration: ${tripDetails.duration}
-- Travelers: ${tripDetails.travelers.join(', ')}
-- ${budgetInfo}
-
-BUDGET CONSTRAINTS:
-${totalBudget ? `
-CRITICAL: The user has specified a TOTAL BUDGET of $${totalBudget} USD for this entire trip.
-You MUST ensure all recommendations and costs fit within this budget. Break it down as:
-- Flights: Allocate 30-40% of total budget ($${Math.round(totalBudget * 0.35)})
-- Accommodation: Allocate 25-35% of total budget ($${Math.round(totalBudget * 0.30)})
-- Food: Allocate 15-20% of total budget ($${Math.round(totalBudget * 0.17)})
-- Activities/Attractions: Allocate 10-15% of total budget ($${Math.round(totalBudget * 0.12)})
-- Transportation (local): Allocate 5-8% of total budget ($${Math.round(totalBudget * 0.06)})
-
-Calculate specific daily budgets and ensure the total does not exceed $${totalBudget}.
-` : `
-Use ${budgetCategory} tier pricing for all recommendations.
-`}
-
-SPECIALIST RESULTS:
-Profile Analysis: ${JSON.stringify(results.profile, null, 2)}
-Destination Data: ${JSON.stringify(results.data, null, 2)}
-Itinerary: ${JSON.stringify(results.itinerary, null, 2)}
-
-COMPILATION TASK:
-Create a comprehensive trip plan in this JSON format. Return ONLY valid JSON without any markdown formatting or code blocks:
-
-{
-  "tripInfo": {
-    "destination": "${tripDetails.destination}",
-    "duration": "${tripDetails.duration}",
-    "companions": "description of travel companions",
-    "travelStyle": ["travel style"],
-    "budget": "${totalBudget ? `$${totalBudget} USD total` : budgetCategory + ' tier'}"
-  },
-  "itinerary": "formatted daily itinerary",
-  "recommendations": {
-    "accommodation": ["accommodation recommendations with specific price ranges that fit the budget"],
-    "restaurants": ["restaurant recommendations with price ranges"],
-    "transportation": "transportation recommendations with costs",
-    "budgetBreakdown": {
-      "total": "${totalBudget || 'TBD'}",
-      "flights": "flight cost estimate",
-      "accommodation": "total accommodation cost",
-      "food": "total food cost",
-      "activities": "total activities cost",
-      "transportation": "local transport cost",
-      "contingency": "emergency/contingency fund"
-    },
-    "travelTips": ["essential travel tips"],
-    "packingList": ["packing recommendations"],
-    "weather": "weather information and advice"
-  },
-  "profile": "travel personality summary",
-  "data": "destination data summary",
-  "compiledAt": "timestamp",
-  "message": "engaging summary message for the user"
-}
-
-${totalBudget ? `IMPORTANT: Ensure ALL cost estimates in the budgetBreakdown add up to approximately $${totalBudget} USD. Be specific with numbers.` : ''}
-Make it engaging, practical, and personalized. The message should be exciting and make the user feel confident about their upcoming trip.`;
-
-      const response = await this.callGemini(prompt);
-      
-      // Clean the response to extract JSON from markdown code blocks
-      let cleanResponse = response.trim();
-      if (cleanResponse.startsWith('```json')) {
-        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-      
-      const compiledPlan = JSON.parse(cleanResponse);
-      
-      // Ensure we have a proper message
-      if (!compiledPlan.message) {
-        compiledPlan.message = `🌟 **Your Perfect ${tripDetails.destination} Adventure is Ready!** 🌟\n\nI've crafted an amazing ${tripDetails.duration} trip to ${tripDetails.destination} just for you! This plan is completely personalized based on your travel style and preferences.`;
-      }
-      
-      // CRITICAL: Inject actual flight and hotel data from results.data
-      // The AI-generated JSON might not preserve the exact structure of arrays
-      if (!compiledPlan.recommendations) {
-        compiledPlan.recommendations = {};
-      }
-      
-      // Inject real flight data (check both data.flights and data.transportation.flights)
-      const flights = results.data?.flights || results.data?.transportation?.flights || [];
-      if (flights.length > 0) {
-        if (!compiledPlan.recommendations.transportation) {
-          compiledPlan.recommendations.transportation = {};
-        }
-        compiledPlan.recommendations.transportation.flights = flights;
-        console.log(`✅ Injected ${flights.length} real flight options into compiled plan`);
-      }
-      
-      // Inject real hotel data (check both data.hotels and data.accommodation.hotels)
-      const hotels = results.data?.hotels || results.data?.accommodation?.hotels || [];
-      if (hotels.length > 0) {
-        if (!compiledPlan.recommendations.accommodation) {
-          compiledPlan.recommendations.accommodation = {};
-        }
-        // Preserve accommodation text if it exists, but add hotels array
-        if (typeof compiledPlan.recommendations.accommodation === 'string' || Array.isArray(compiledPlan.recommendations.accommodation)) {
-          const existingText = compiledPlan.recommendations.accommodation;
-          compiledPlan.recommendations.accommodation = {
-            text: existingText,
-            hotels: hotels
-          };
-        } else {
-          compiledPlan.recommendations.accommodation.hotels = hotels;
-        }
-        console.log(`✅ Injected ${hotels.length} real hotel options into compiled plan`);
-      }
-      
-      // Inject weather data
-      if (results.data && results.data.weather) {
-        compiledPlan.recommendations.weather = results.data.weather;
-      }
-      
-      // Inject departure city and budget preference
-      compiledPlan.recommendations.departureCity = tripDetails.departureCity;
-      compiledPlan.recommendations.budgetPreference = tripDetails.budgetPreference;
-      
-      return compiledPlan;
-    } catch (error) {
-      console.error('AI Final Plan Compilation error:', error);
-      // Fallback compilation
-      const totalBudget = tripDetails.budget || null;
-      const budgetDisplay = totalBudget
-        ? `$${totalBudget} USD total`
-        : (results.profile.recommendations?.budgetRange || '$100-200/day');
-
-      return {
-        tripInfo: {
-          destination: tripDetails.destination,
-          duration: tripDetails.duration,
-          companions: tripDetails.travelers[0] === 'solo' ? 'Solo travel' : 'Group travel',
-          travelStyle: results.profile.travelStyle || ['culture'],
-          budget: budgetDisplay
-        },
-        itinerary: results.itinerary.dailyPlans || [],
-        recommendations: {
-          // Fix data structure to properly pass flights, hotels, and weather
-          transportation: {
-            flights: results.data.transportation?.flights || [],
-            localTransport: results.data.transportation?.localTransport || 'Public transport'
-          },
-          accommodation: {
-            hotels: results.data.accommodation?.hotels || []
-          },
-          restaurants: results.data.restaurants || [],
-          budgetBreakdown: results.itinerary.recommendations?.budgetBreakdown || {},
-          travelTips: results.itinerary.recommendations?.travelTips || [],
-          packingList: results.itinerary.recommendations?.packingList || [],
-          weather: results.data.weather || null,
-          departureCity: results.data.departureCity || tripDetails.departureCity,
-          budgetPreference: results.data.budgetPreference || tripDetails.budgetPreference
-        },
-        profile: results.profile,
-        data: results.data,
-        compiledAt: new Date().toISOString(),
-        message: `🌟 **Your Perfect ${tripDetails.destination} Adventure is Ready!** 🌟\n\nI've crafted an amazing ${tripDetails.duration} trip to ${tripDetails.destination} just for you! This plan is completely personalized based on your travel style and preferences.`
-      };
-    }
-  }
-
-  async compileFinalPlan(tripDetails, results) {
-    return {
-      tripInfo: {
-        destination: tripDetails.destination,
-        duration: tripDetails.duration,
-        companions: tripDetails.travelers[0] === 'solo' ? 'Solo travel' : tripDetails.travelers[0] === 'duo' ? 'With a companion' : 'Group travel',
-        travelStyle: results.profile.travelStyle,
-        budget: results.profile.recommendations.budgetRange
-      },
-      itinerary: results.itinerary.dailyPlans || [],
-      recommendations: {
-        accommodation: results.data.accommodation.hotels || [],
-        restaurants: results.data.restaurants || [],
-        transportation: {
-          localTransport: results.data.transportation.localTransport,
-          tips: results.data.transportation.tips || []
-        },
-        budgetBreakdown: results.itinerary.recommendations.budgetBreakdown || {},
-        travelTips: results.itinerary.recommendations.travelTips || [],
-        packingList: results.itinerary.recommendations.packingList || [],
-        weather: results.data.weather.current || ''
-      },
-      profile: results.profile,
-      data: results.data,
-      compiledAt: new Date().toISOString()
-    };
-  }
-
-  /**
    * Format comprehensive final plan for user display - AI-powered
    */
   async formatComprehensiveFinalPlan(tripData, tripDetails, userContext) {
@@ -1960,89 +1330,6 @@ Generate the complete formatted travel plan now:`;
       comprehensiveMessage += `\n\nThis plan is completely customizable! Want to adjust anything? Just let me know! 🛠️✨`;
 
       return comprehensiveMessage.trim();
-      
-      // Old narrative code below is skipped
-      if (false && recommendations.transportation) {
-        comprehensiveMessage += `Getting around is easy once you know the tricks. `;
-
-        if (recommendations.transportation.localTransport) {
-          comprehensiveMessage += `Your best bet for getting around is ${recommendations.transportation.localTransport}. `;
-        }
-
-        if (recommendations.transportation.tips && recommendations.transportation.tips.length > 0) {
-          comprehensiveMessage += `Here are some insider tips that'll save you time and hassle: `;
-          recommendations.transportation.tips.forEach((tip, idx) => {
-            if (idx > 0) comprehensiveMessage += `, `;
-            comprehensiveMessage += `${tip.toLowerCase()}`;
-          });
-          comprehensiveMessage += `.`;
-        }
-
-        comprehensiveMessage += `\n\n`;
-      }
-
-      // Budget Breakdown in pure paragraph format - NO headers
-      if (recommendations.budgetBreakdown && Object.keys(recommendations.budgetBreakdown).length > 0) {
-        comprehensiveMessage += `Let's talk money for a second. `;
-
-        const budgetEntries = Object.entries(recommendations.budgetBreakdown);
-        budgetEntries.forEach(([category, amount], idx) => {
-          const catName = category.charAt(0).toUpperCase() + category.slice(1);
-
-          if (idx === 0) {
-            comprehensiveMessage += `You're looking at roughly ${amount} for ${catName.toLowerCase()}`;
-          } else if (idx === budgetEntries.length - 1) {
-            comprehensiveMessage += `, and ${amount} for ${catName.toLowerCase()}`;
-          } else {
-            comprehensiveMessage += `, ${amount} for ${catName.toLowerCase()}`;
-          }
-        });
-
-        comprehensiveMessage += `. This gives you a comfortable trip without overspending, leaving room for those spontaneous moments that make travel magical.\n\n`;
-      }
-
-      // Travel Tips in pure paragraph format - NO headers
-      if (recommendations.travelTips && recommendations.travelTips.length > 0) {
-        comprehensiveMessage += `Here's some travel wisdom that'll make your trip smoother. `;
-
-        recommendations.travelTips.forEach((tip, idx) => {
-          if (idx === 0) {
-            comprehensiveMessage += `${tip}`;
-          } else {
-            comprehensiveMessage += ` ${tip}`;
-          }
-
-          if (idx < recommendations.travelTips.length - 1) {
-            comprehensiveMessage += `.`;
-          }
-        });
-
-        comprehensiveMessage += `. These little insights can turn a good trip into an extraordinary one.\n\n`;
-      }
-
-      // Weather Information in pure paragraph format - NO headers
-      if (recommendations.weather) {
-        comprehensiveMessage += `Weather-wise, ${recommendations.weather.toLowerCase()} This is actually perfect timing for your adventure, giving you comfortable conditions to explore without the extremes. Pack accordingly and you'll be set! `;
-      }
-
-      // Packing Suggestions in pure paragraph format - NO headers
-      if (recommendations.packingList && recommendations.packingList.length > 0) {
-        comprehensiveMessage += `You don't need to bring your entire closet, but these essentials will make your life so much easier: `;
-
-        recommendations.packingList.forEach((item, idx) => {
-          if (idx === recommendations.packingList.length - 1) {
-            comprehensiveMessage += `and ${item.toLowerCase()}`;
-          } else if (idx > 0) {
-            comprehensiveMessage += `, ${item.toLowerCase()}`;
-          } else {
-            comprehensiveMessage += `${item.toLowerCase()}`;
-          }
-        });
-
-        comprehensiveMessage += `. Trust me, you'll thank yourself for bringing these!\n\n`;
-      }
-
-      return comprehensiveMessage.trim();
     }
   }
 
@@ -2120,157 +1407,6 @@ Generate the complete formatted travel plan now:`;
       metadata: { error: error.message }
     };
   }
-
-  /**
-   * Helper methods for generating sample destination data
-   */
-  getDestinationData(destination) {
-    const destinations = {
-      'Japan': {
-        weather: '18°C, cherry blossom season',
-        forecast: 'Mild temperatures, occasional rain',
-        bestTime: 'Spring (March-May) for cherry blossoms, Fall for autumn colors',
-        flightPrices: '$800-1500',
-        airlines: ['JAL', 'ANA', 'United'],
-        flightDuration: '12-16 hours',
-        localTransport: 'JR Pass for trains, IC cards for local transport',
-        transportTips: ['Get JR Pass before arrival', 'Download Google Translate', 'Cash is preferred'],
-        hotels: [
-          { name: 'Hotel Gracery Shinjuku', rating: 4, location: 'Shinjuku', price: '$150-200/night', highlights: 'Godzilla views' },
-          { name: 'Ryokan Yamashiro', rating: 5, location: 'Kyoto', price: '$300-400/night', highlights: 'Traditional experience' }
-        ],
-        neighborhoods: ['Shinjuku (modern)', 'Kyoto (traditional)', 'Harajuku (trendy)'],
-        hotelPrices: 'Budget: $50-80, Mid: $100-200, Luxury: $300+',
-        attractions: ['Tokyo Skytree', 'Fushimi Inari Shrine', 'Senso-ji Temple'],
-        restaurants: [
-          { name: 'Sukiyabashi Jiro', cuisine: 'Sushi', location: 'Ginza', specialty: 'Omakase', priceRange: '$300-400' },
-          { name: 'Ichiran Ramen', cuisine: 'Ramen', location: 'Multiple', specialty: 'Tonkotsu Ramen', priceRange: '$10-15' }
-        ],
-        budgetBreakdown: { accommodation: '$100-200/day', food: '$50-80/day', transport: '$20-30/day', activities: '$30-50/day' },
-        safety: 'Extremely safe, low crime rate',
-        cultural: ['Remove shoes indoors', 'Bow when greeting', 'No tipping culture']
-      },
-      'default': {
-        weather: '22°C, pleasant conditions',
-        forecast: 'Generally favorable weather',
-        bestTime: 'Year-round destination',
-        flightPrices: '$600-1200',
-        airlines: ['Various carriers available'],
-        flightDuration: '8-12 hours',
-        localTransport: 'Public transport and taxis available',
-        transportTips: ['Research local transport apps', 'Keep small bills handy'],
-        hotels: [
-          { name: 'City Center Hotel', rating: 4, location: 'Downtown', price: '$120-180/night', highlights: 'Central location' }
-        ],
-        neighborhoods: ['City Center', 'Old Town', 'Modern District'],
-        hotelPrices: 'Budget: $40-70, Mid: $80-150, Luxury: $200+',
-        attractions: ['Main landmark', 'Historic district', 'Cultural sites'],
-        restaurants: [
-          { name: 'Local Favorite', cuisine: 'Local', location: 'City Center', specialty: 'Regional dishes', priceRange: '$20-40' }
-        ],
-        budgetBreakdown: { accommodation: '$80-150/day', food: '$40-60/day', transport: '$15-25/day', activities: '$25-40/day' },
-        safety: 'Generally safe with normal precautions',
-        cultural: ['Research local customs', 'Respect local traditions']
-      }
-    };
-
-    return destinations[destination] || destinations['default'];
-  }
-
-  generateSampleItinerary(destination, days, interests) {
-    const itineraryTemplates = {
-      'Japan': [
-        {
-          title: 'Tokyo Arrival & Modern Exploration',
-          activities: [
-            { time: '10:00', name: 'Arrive at Narita/Haneda Airport', location: 'Airport', description: 'Immigration and transport to hotel' },
-            { time: '14:00', name: 'Check-in and Shibuya Crossing', location: 'Shibuya', description: 'Experience the worlds busiest crossing' },
-            { time: '16:00', name: 'Meiji Shrine Visit', location: 'Shibuya', description: 'Peaceful shrine in the heart of Tokyo' },
-            { time: '18:00', name: 'Harajuku Street Food Tour', location: 'Harajuku', description: 'Quirky fashion and amazing street food' }
-          ]
-        },
-        {
-          title: 'Traditional Tokyo & Temples',
-          activities: [
-            { time: '09:00', name: 'Senso-ji Temple', location: 'Asakusa', description: 'Tokyos oldest Buddhist temple' },
-            { time: '11:00', name: 'Traditional Shopping at Nakamise', location: 'Asakusa', description: 'Traditional snacks and souvenirs' },
-            { time: '14:00', name: 'Tokyo Skytree', location: 'Sumida', description: 'Panoramic city views' },
-            { time: '17:00', name: 'Izakaya Dinner Experience', location: 'Shinjuku', description: 'Authentic Japanese dining culture' }
-          ]
-        }
-      ]
-    };
-
-    const template = itineraryTemplates[destination] || [
-      {
-        title: `Day 1 - Arrival and City Introduction`,
-        activities: [
-          { time: '10:00', name: 'Arrival and Check-in', location: 'Hotel', description: 'Settle in and get oriented' },
-          { time: '14:00', name: 'City Center Exploration', location: 'Downtown', description: 'Get familiar with the main area' },
-          { time: '17:00', name: 'Welcome Dinner', location: 'Local Restaurant', description: 'Try the local cuisine' }
-        ]
-      },
-      {
-        title: `Day 2 - Cultural Highlights`,
-        activities: [
-          { time: '09:00', name: 'Main Cultural Site', location: 'Historic District', description: 'Explore the main cultural attraction' },
-          { time: '14:00', name: 'Local Market Visit', location: 'Market District', description: 'Experience local life and shopping' },
-          { time: '16:00', name: 'Scenic Viewpoint', location: 'High Point', description: 'Best views of the city' }
-        ]
-      }
-    ];
-
-    return template.slice(0, days);
-  }
-
-  generateHighlights(destination, interests) {
-    const highlights = {
-      culture: 'Immersive cultural experiences and historic sites',
-      food: 'Authentic culinary adventures and local delicacies',
-      adventure: 'Exciting activities and unique experiences',
-      sightseeing: 'Must-see landmarks and scenic viewpoints'
-    };
-
-    const relevantHighlights = interests.map(interest => highlights[interest] || highlights.sightseeing);
-    return `Perfect for ${interests.join(' and ')} enthusiasts: ${relevantHighlights.join(', ')}`;
-  }
-
-  generatePackingList(destination) {
-    return [
-      'Comfortable walking shoes',
-      'Weather-appropriate clothing',
-      'Universal power adapter',
-      'Portable phone charger',
-      'Travel documents and copies',
-      'Basic first aid kit',
-      'Local currency and cards',
-      'Camera or phone for photos'
-    ];
-  }
-
-  generateTravelTips(destination) {
-    return [
-      'Download offline maps and translation apps',
-      'Research local customs and etiquette',
-      'Keep important documents secure',
-      'Stay hydrated and take breaks',
-      'Try to learn basic local phrases',
-      'Be flexible with your itinerary',
-      'Take plenty of photos and enjoy the moment!'
-    ];
-  }
-
-  generateBudgetBreakdown(destination, days) {
-    return {
-      accommodation: `$80-200 per night (${days} nights)`,
-      meals: '$40-80 per day',
-      transportation: '$20-40 per day',
-      activities: '$30-60 per day',
-      miscellaneous: '$20-30 per day',
-      total: `$${(150 * days)} - $${(410 * days)} estimated`
-    };
-  }
-
   /**
    * Handle trip modification requests
    */
