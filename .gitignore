@@ -151,3 +151,19 @@ vite.config.js.timestamp-*
 
 # Local configuration
 *.local
+
+# Additional security patterns - API keys and credentials
+**/serviceAccountKey*.json
+**/credentials.json
+**/keys.json
+**/secrets.json
+**/api-keys.json
+**/config.json
+**/firebase-adminsdk*.json
+**/.env.backup
+**/.env.python
+**/.env.local.backup
+**/config.local.json
+**/settings.json
+**/auth.json
+**/token.json
