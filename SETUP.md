@@ -9,6 +9,7 @@ Before you begin, make sure you have:
 - **Node.js** (v18 or higher) - [Download here](https://nodejs.org/)
 - **Firebase project** - [Create one here](https://console.firebase.google.com/)
 - **Google Gemini API key** - [Get it here](https://makersuite.google.com/app/apikey)
+- **Google Maps API key** - [Get it here](https://console.cloud.google.com/apis/credentials)
 - **SerpAPI key** - [Sign up here](https://serpapi.com/)
 - **OpenWeatherMap API key** - [Register here](https://openweathermap.org/api)
 
@@ -79,7 +80,7 @@ cd frontend
 cp env.example .env.local
 ```
 
-Edit `.env.local` with your Firebase configuration:
+Edit `.env.local` with your Firebase and Google Maps configuration:
 
 ```env
 VITE_FIREBASE_API_KEY=your_firebase_api_key
@@ -88,6 +89,9 @@ VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
 VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 VITE_FIREBASE_APP_ID=your_app_id
+
+# Google Maps API Key
+VITE_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 ```
 
 ### 6. Start the Application
@@ -118,6 +122,12 @@ This will start both frontend and backend servers concurrently.
 - Verify all API keys are valid and have proper permissions
 - Check that your Firebase project is properly configured
 - Ensure all environment variables are set correctly
+
+**Google Maps API Issues:**
+- Make sure Maps Embed API is enabled in Google Cloud Console
+- Verify billing is set up for your Google Cloud project
+- Check API key restrictions (HTTP referrers should include `http://localhost:8083/*`)
+- Ensure your API key has proper permissions
 
 **Port Conflicts:**
 - If port 3001 is busy, change `PORT` in your `.env` file
