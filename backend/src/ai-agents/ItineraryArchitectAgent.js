@@ -55,12 +55,11 @@ OUTPUT REQUIREMENTS:
 
     let parsedItinerary;
     try {
-      // Try to extract and parse JSON from the response
-      const jsonMatch = itineraryDesign.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsedItinerary = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in itinerary response');
+      // Use the parseAIResponse method from BaseAgent
+      parsedItinerary = this.parseAIResponse(itineraryDesign);
+
+      if (!parsedItinerary) {
+        throw new Error('Failed to parse AI response');
       }
     } catch (error) {
       console.log('Failed to parse itinerary JSON, creating fallback structure');
@@ -68,7 +67,7 @@ OUTPUT REQUIREMENTS:
     }
 
     // Enhance itinerary with additional details
-    const enhancedItinerary = await this.enhanceItinerary(parsedItinerary, tripDetails, travelData);
+    const enhancedItinerary = this.enhanceItinerary(parsedItinerary, tripDetails, travelData);
 
     this.updateStatus('completed', 'Designed comprehensive personalized itinerary');
 
@@ -80,44 +79,6 @@ OUTPUT REQUIREMENTS:
     };
 
     return this.results;
-  }
-
-  /**
-   * Create alternative itinerary options
-   */
-  async createItineraryVariations(baseItinerary, userPreferences = {}) {
-    this.updateStatus('working', 'Creating alternative itinerary options');
-
-    const variationsPrompt = this.buildVariationsPrompt(baseItinerary, userPreferences);
-    const variations = await this.callGemini(variationsPrompt);
-
-    this.updateStatus('completed', 'Generated alternative itinerary variations');
-
-    return {
-      type: 'itinerary_variations',
-      variations,
-      baseItinerary,
-      userPreferences
-    };
-  }
-
-  /**
-   * Optimize itinerary for specific constraints
-   */
-  async optimizeItinerary(itinerary, constraints = {}) {
-    this.updateStatus('working', 'Optimizing itinerary based on constraints');
-
-    const optimizationPrompt = this.buildOptimizationPrompt(itinerary, constraints);
-    const optimizedItinerary = await this.callGemini(optimizationPrompt);
-
-    this.updateStatus('completed', 'Optimized itinerary for user constraints');
-
-    return {
-      type: 'optimized_itinerary',
-      optimizedItinerary,
-      appliedConstraints: constraints,
-      optimizations: this.getOptimizationSummary(constraints)
-    };
   }
 
   /**
@@ -215,60 +176,9 @@ Make it extraordinary and perfectly tailored to their travel personality!`;
   }
 
   /**
-   * Build variations prompt
-   */
-  buildVariationsPrompt(baseItinerary, userPreferences) {
-    return `${this.systemPrompt}
-
-BASE ITINERARY:
-${JSON.stringify(baseItinerary, null, 2)}
-
-USER PREFERENCES FOR VARIATIONS:
-${JSON.stringify(userPreferences, null, 2)}
-
-TASK:
-Create 2-3 alternative versions of this itinerary with different approaches:
-
-1. "More Relaxed" - Slower pace, more leisure time, fewer activities per day
-2. "Adventure-Packed" - More activities, faster pace, adrenaline-focused
-3. "Local Immersion" - Focus on authentic local experiences, less touristy attractions
-
-Each variation should maintain the same destination and duration but offer a different travel experience.
-Provide brief explanations of how each variation differs from the original.
-
-Return as a structured comparison showing the key differences.`;
-  }
-
-  /**
-   * Build optimization prompt
-   */
-  buildOptimizationPrompt(itinerary, constraints) {
-    return `${this.systemPrompt}
-
-CURRENT ITINERARY:
-${JSON.stringify(itinerary, null, 2)}
-
-CONSTRAINTS TO OPTIMIZE FOR:
-${JSON.stringify(constraints, null, 2)}
-
-TASK:
-Optimize this itinerary based on the given constraints. Possible constraints include:
-- Budget limitations
-- Mobility restrictions
-- Time constraints
-- Dietary restrictions
-- Weather considerations
-- Group size changes
-- Special interests
-
-Provide the optimized itinerary with explanations of what changed and why.
-Maintain the core experience while adapting to the constraints.`;
-  }
-
-  /**
    * Enhance itinerary with additional details
    */
-  async enhanceItinerary(itinerary, tripDetails, travelData) {
+  enhanceItinerary(itinerary, tripDetails, travelData) {
     // Add booking information if available
     if (travelData?.flights) {
       itinerary.flight_options = travelData.flights.slice(0, 3);
@@ -437,60 +347,5 @@ Maintain the core experience while adapting to the constraints.`;
     principles.push('Optimized routing to minimize travel time');
 
     return principles;
-  }
-
-  getOptimizationSummary(constraints) {
-    const optimizations = [];
-
-    Object.keys(constraints).forEach(constraint => {
-      switch (constraint) {
-        case 'budget':
-          optimizations.push('Adjusted activities and accommodations for budget constraints');
-          break;
-        case 'mobility':
-          optimizations.push('Selected accessible venues and transportation');
-          break;
-        case 'time':
-          optimizations.push('Prioritized must-see experiences within time limits');
-          break;
-        case 'weather':
-          optimizations.push('Modified outdoor activities based on weather conditions');
-          break;
-        default:
-          optimizations.push(`Optimized for ${constraint} considerations`);
-      }
-    });
-
-    return optimizations;
-  }
-
-  /**
-   * Execute method - handles different types of itinerary design tasks
-   */
-  async execute(input, context = {}) {
-    const {
-      action,
-      tripDetails,
-      profileAnalysis,
-      travelData,
-      userPreferences,
-      itinerary,
-      constraints
-    } = input;
-
-    switch (action) {
-      case 'design_itinerary':
-        return await this.designItinerary(tripDetails, profileAnalysis, travelData);
-
-      case 'create_variations':
-        return await this.createItineraryVariations(itinerary, userPreferences);
-
-      case 'optimize_itinerary':
-        return await this.optimizeItinerary(itinerary, constraints);
-
-      default:
-        // Default to designing itinerary
-        return await this.designItinerary(tripDetails, profileAnalysis, travelData);
-    }
   }
 }

@@ -1,175 +1,40 @@
 /**
- * Quick Response AI Service
- * Uses the ChatManager as the single point of contact for instant responses
+ * QuickResponseAIService - Thin wrapper around ChatManagerAgent
+ * Provides backward compatibility for existing API routes
  */
 import ChatManagerAgent from './ChatManagerAgent.js';
 
-export default class QuickResponseAIService {
+class QuickResponseAIService {
   constructor() {
     this.chatManager = null;
-    this.systemReady = false;
   }
 
-  /**
-   * Initialize with instant setup
-   */
   async initialize(socketService = null) {
-    console.log('⚡ Initializing Quick Response AI Service...');
-
-    // Create the chat manager (instant setup)
     this.chatManager = new ChatManagerAgent();
-    this.systemReady = true;
-
-    console.log('✅ Quick Response AI Service ready instantly!');
-    return true;
+    console.log('✅ QuickResponseAIService initialized (using ChatManagerAgent)');
   }
 
   /**
-   * Main method - all requests go through ChatManager
+   * Main entry point - delegates to ChatManagerAgent
    */
-  async generateResponse(message, userContext = {}, socketService = null) {
+  async generateResponse(message, userContext, socketService = null) {
     try {
-      // Ensure system is ready
-      if (!this.systemReady) {
-        await this.initialize(socketService);
-      }
+      const response = await this.chatManager.handleUserMessage(message, userContext, socketService);
 
-      // Let ChatManager handle everything
-      const response = await this.chatManager.handleUserMessage(
-        message,
-        userContext,
-        socketService
-      );
-
-      return this.formatResponse(response);
-
+      return {
+        success: true,
+        message: response.message || response,
+        timestamp: new Date().toISOString(),
+        type: response.type || 'chat',
+        metadata: response.metadata || {}
+      };
     } catch (error) {
-      console.error('Quick Response AI Service error:', error);
-      return this.getQuickErrorResponse(error, message, userContext);
-    }
-  }
-
-  /**
-   * Format response for API compatibility
-   */
-  formatResponse(response) {
-    if (!response.success) {
-      return response;
-    }
-
-    return {
-      success: true,
-      message: response.message,
-      timestamp: response.timestamp,
-      type: response.type || 'chat',
-      metadata: {
-        ...response.metadata,
-        quickResponse: response.quick || false,
-        systemVersion: '2.1',
-        responseTime: 'instant'
-      }
-    };
-  }
-
-  /**
-   * Quick error response
-   */
-  getQuickErrorResponse(error, message, userContext) {
-    const name = userContext.userProfile?.name || '';
-
-    return {
-      success: true,
-      message: `Hey${name ? ` ${name}` : ''}! I'm having a quick technical moment, but I'm still here to help! What's on your travel wishlist? ✈️`,
-      timestamp: new Date().toISOString(),
-      type: 'chat',
-      metadata: {
+      console.error('QuickResponseAIService Error:', error);
+      return {
+        success: false,
         error: error.message,
-        fallbackUsed: true,
-        systemVersion: '2.1',
-        responseTime: 'instant'
-      }
-    };
-  }
-
-  /**
-   * Quick actions for UI
-   */
-  getQuickActions() {
-    return [
-      {
-        id: 'plan_trip',
-        text: 'Plan a trip',
-        prompt: "I want to plan a trip!"
-      },
-      {
-        id: 'destination_ideas',
-        text: 'Get destination ideas',
-        prompt: "Can you recommend some destinations for me?"
-      },
-      {
-        id: 'budget_tips',
-        text: 'Budget tips',
-        prompt: "What are some budget travel tips?"
-      },
-      {
-        id: 'weather_check',
-        text: 'Check weather',
-        prompt: "Can you check the weather for my destination?"
-      }
-    ];
-  }
-
-  /**
-   * Generate welcome message - AI-powered
-   */
-  async generateWelcomeMessage(userProfile = {}) {
-    try {
-      const name = userProfile.name || '';
-      const interests = userProfile.interests || [];
-      const bucketList = userProfile.bucketList || [];
-      const travelStyle = userProfile.travelStyle || [];
-
-      // Build context for AI
-      let contextInfo = '';
-      if (name) contextInfo += `User's name: ${name}\n`;
-      if (interests.length > 0) contextInfo += `Interests: ${interests.join(', ')}\n`;
-      if (bucketList.length > 0) contextInfo += `Bucket list destinations: ${bucketList.join(', ')}\n`;
-      if (travelStyle.length > 0) contextInfo += `Travel style: ${travelStyle.join(', ')}\n`;
-
-      const welcomePrompt = `You are WanderBuddy, a warm and enthusiastic AI travel companion. Generate a personalized welcome message for this user.
-
-USER CONTEXT:
-${contextInfo}
-
-INSTRUCTIONS:
-- Be warm, friendly, and genuinely excited about travel
-- Use their name if provided
-- Reference their interests, bucket list, or travel style naturally
-- Keep it conversational and engaging
-- Use travel emojis naturally (👋 ✈️ 🌍 🗺️)
-- Ask what destination they're thinking about or what adventure they want to plan
-- Keep it under 80 words
-
-Generate a personalized welcome that makes them excited to start planning their next adventure.`;
-
-      const aiWelcome = await this.chatManager.callGemini(welcomePrompt);
-      return aiWelcome;
-    } catch (error) {
-      console.error('Error generating AI welcome message:', error);
-      
-      // Fallback to simple welcome if AI fails
-      const name = userProfile.name || '';
-      const interests = userProfile.interests || [];
-      
-      let fallbackWelcome = `Hey${name ? ` ${name}` : ''}! 👋 Ready to plan your next adventure?`;
-      
-      if (interests.length > 0) {
-        fallbackWelcome += ` I see you're into ${interests[0]} - there are some incredible destinations perfect for that! 🌟`;
-      } else {
-        fallbackWelcome += ` What destination has been calling your name lately? 🗺️`;
-      }
-      
-      return fallbackWelcome;
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
@@ -177,28 +42,12 @@ Generate a personalized welcome that makes them excited to start planning their 
    * Health check
    */
   async healthCheck() {
-    try {
-      const testResponse = await this.generateResponse(
-        "hi",
-        { userProfile: { name: 'TestUser' } }
-      );
-
-      return {
-        status: 'healthy',
-        systemReady: this.systemReady,
-        chatManagerActive: !!this.chatManager,
-        testResponseSuccess: testResponse.success,
-        version: '2.1',
-        features: ['Instant responses', 'Single agent interface', 'Background planning', 'Real-time updates']
-      };
-
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        error: error.message,
-        version: '2.1'
-      };
-    }
+    return {
+      status: 'healthy',
+      service: 'QuickResponseAIService',
+      chatManager: this.chatManager ? 'initialized' : 'not initialized',
+      timestamp: new Date().toISOString()
+    };
   }
 
   /**
@@ -206,20 +55,31 @@ Generate a personalized welcome that makes them excited to start planning their 
    */
   getSystemStats() {
     return {
-      systemReady: this.systemReady,
-      version: '2.1',
-      architecture: 'single_manager_agent',
-      features: [
-        'Instant greeting responses',
-        'Natural conversation flow',
-        'Background specialist coordination',
-        'Real-time planning updates',
-        'Single point of user contact'
-      ],
-      chatManagerStatus: this.chatManager ? this.chatManager.getStatusUpdate() : null,
-      activeConversations: this.chatManager ? this.chatManager.conversationStates.size : 0,
-      activePlanningProcesses: this.chatManager ? this.chatManager.planningProcesses.size : 0
+      service: 'QuickResponseAIService',
+      version: '3.0',
+      status: 'active',
+      chatManager: this.chatManager ? 'active' : 'inactive',
+      timestamp: new Date().toISOString()
     };
+  }
+
+  /**
+   * Get quick actions
+   */
+  getQuickActions() {
+    return [
+      { id: 'plan-trip', label: 'Plan a Trip', icon: '✈️' },
+      { id: 'ask-question', label: 'Ask Travel Question', icon: '❓' },
+      { id: 'get-recommendations', label: 'Get Recommendations', icon: '⭐' }
+    ];
+  }
+
+  /**
+   * Generate welcome message
+   */
+  generateWelcomeMessage(userProfile = {}) {
+    const name = userProfile.name || 'there';
+    return `Hey ${name}! 👋 Ready to plan your next adventure? I'm here to help you create amazing travel experiences. Just tell me where you'd like to go!`;
   }
 
   /**
@@ -227,7 +87,7 @@ Generate a personalized welcome that makes them excited to start planning their 
    */
   getConversationState(userId) {
     if (!this.chatManager) return null;
-    return this.chatManager.conversationStates.get(userId);
+    return this.chatManager.conversationStates.get(userId) || null;
   }
 
   /**
@@ -236,18 +96,12 @@ Generate a personalized welcome that makes them excited to start planning their 
   clearConversationState(userId) {
     if (!this.chatManager) return false;
 
+    const hadState = this.chatManager.conversationStates.has(userId);
     this.chatManager.conversationStates.delete(userId);
     this.chatManager.planningProcesses.delete(userId);
 
-    return true;
-  }
-
-  /**
-   * Force reinitialize
-   */
-  async reinitialize(socketService = null) {
-    this.systemReady = false;
-    this.chatManager = null;
-    return await this.initialize(socketService);
+    return hadState;
   }
 }
+
+export default QuickResponseAIService;

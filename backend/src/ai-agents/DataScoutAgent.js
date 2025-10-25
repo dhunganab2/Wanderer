@@ -393,52 +393,6 @@ OUTPUT REQUIREMENTS:
   }
 
   /**
-   * Get restaurant data using SerpAPI
-   */
-  async getRestaurantData(destination) {
-    console.log(`🍽️ Fetching restaurant data for ${destination} using SerpAPI...`);
-
-    if (!this.apiKeys.serpapi || this.apiKeys.serpapi === 'your-serpapi-key-here') {
-      console.log('⚠️ SerpAPI key not configured, using fallback restaurant data');
-      return this.getRestaurantFallback(destination);
-    }
-
-    try {
-      const params = new URLSearchParams({
-        engine: 'google',
-        q: `best restaurants in ${destination}`,
-        api_key: this.apiKeys.serpapi
-      });
-
-      const response = await fetch(`${this.apiEndpoints.serpapi}?${params}`, {
-        timeout: 10000
-      });
-
-      if (!response.ok) {
-        throw new Error(`SerpAPI restaurant request failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const restaurants = this.processRestaurantData(data.organic_results || []);
-      
-      console.log(`✅ Found ${restaurants.length} restaurants for ${destination}`);
-      
-      return {
-        restaurants,
-        budgetInfo: {
-          food: '$30-80/day',
-          fineDining: '$100-200/meal',
-          casual: '$15-40/meal'
-        }
-      };
-
-    } catch (error) {
-      console.log('Restaurant data error:', error.message);
-      return this.getRestaurantFallback(destination);
-    }
-  }
-
-  /**
    * Get local insights using web search
    */
   async getLocalInsights(destination) {
@@ -520,16 +474,6 @@ Format as a comprehensive local guide.`;
     }));
   }
 
-  processRestaurantData(results) {
-    return results.map(result => ({
-      name: result.title,
-      description: result.snippet,
-      url: result.link,
-      rating: this.extractRating(result.snippet),
-      category: 'restaurant'
-    }));
-  }
-
   /**
    * Fallback methods when APIs are unavailable
    */
@@ -608,21 +552,6 @@ Format as a comprehensive local guide.`;
       { name: `Museum of ${destination}`, description: 'Learn about local history and art', category: 'museum' },
       { name: `Scenic Viewpoint`, description: 'Enjoy panoramic views of the city', category: 'scenic' }
     ];
-  }
-
-  getRestaurantFallback(destination) {
-    return {
-      restaurants: [
-        { name: `Local Favorite in ${destination}`, cuisine: 'Local', location: 'City Center', specialty: 'Traditional dishes' },
-        { name: `Market Restaurant`, cuisine: 'Casual', location: 'Local Market', specialty: 'Fresh local ingredients' },
-        { name: `Historic Café`, cuisine: 'Coffee & Pastries', location: 'Old Town', specialty: 'Authentic local treats' }
-      ],
-      budgetInfo: {
-        food: '$30-80/day',
-        fineDining: '$100-200/meal',
-        casual: '$15-40/meal'
-      }
-    };
   }
 
   /**
